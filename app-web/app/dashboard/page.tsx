@@ -1,20 +1,12 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { X } from 'lucide-react';
 
-// Mock data based on assets table requirements
-const initialAssetsData = [
-  { id: 1, name: 'MacBook Pro 16"', type: 'Laptop', serial: 'MBP-1234', price: 2499, location: 'HQ - Room A', status: 'available' },
-  { id: 2, name: 'Dell XPS 15', type: 'Laptop', serial: 'DX-5678', price: 1899, location: 'Remote', status: 'busy' },
-  { id: 3, name: 'Logitech MX Master 3', type: 'Accessory', serial: 'LMM-9012', price: 99, location: 'HQ - Room B', status: 'available' },
-  { id: 4, name: 'iPhone 13 Pro', type: 'Mobile', serial: 'IP-3456', price: 999, location: 'Repair Center', status: 'broken' },
-  { id: 5, name: 'Herman Miller Chair', type: 'Furniture', serial: 'HMC-7890', price: 1200, location: 'HQ - Room A', status: 'busy' },
-];
-
 export default function DashboardPage() {
-  const [assets, setAssets] = useState(initialAssetsData);
+  const [assets, setAssets] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
@@ -29,24 +21,56 @@ export default function DashboardPage() {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleSave = () => {
+  const fetchAssets = async () => {
+    try {
+      setIsLoading(true);
+      const res = await fetch('/api/assets');
+      if (res.ok) {
+        const data = await res.json();
+        setAssets(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch assets', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAssets();
+  }, []);
+
+  const handleSave = async () => {
     // Simple validation, ensure at least name is provided
     if (!formData.name.trim()) return;
 
-    setAssets([
-      ...assets,
-      {
-        id: Date.now(),
-        name: formData.name,
-        type: formData.type || 'Other',
-        serial: formData.serial || 'N/A',
-        price: Number(formData.price) || 0,
-        location: formData.location || 'Unassigned',
-        status: 'available', // Default status for new assets
+    try {
+      const res = await fetch('/api/assets', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: formData.name,
+          type: formData.type || 'Other',
+          serial: formData.serial || 'N/A',
+          price: Number(formData.price) || 0,
+          location: formData.location || 'Unassigned',
+          status: 'available',
+        }),
+      });
+
+      if (res.ok) {
+        // Refresh the list from the database
+        await fetchAssets();
+        setIsModalOpen(false);
+        setFormData({ name: '', type: '', serial: '', price: '', location: '' }); // Reset
+      } else {
+        console.error('Failed to save asset');
       }
-    ]);
-    setIsModalOpen(false);
-    setFormData({ name: '', type: '', serial: '', price: '', location: '' }); // Reset
+    } catch (error) {
+      console.error('Error saving asset:', error);
+    }
   };
 
   return (
