@@ -1,52 +1,59 @@
 import { NextResponse } from 'next/server';
-import { query } from '@/lib/db';
-
-export async function GET() {
-  try {
-    const { rows } = await query('SELECT * FROM assets ORDER BY id DESC');
-    return NextResponse.json(rows);
-  } catch (error) {
-    console.error('Error fetching assets:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
-  }
-}
+import { query } from '@/lib/db'; // 确保你的 db.ts 路径正确
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { name, type, serial, price, location, status } = body;
+    const { name, type, serial, location, status, condition, qr_code } = body;
 
-    if (!name) {
-      return NextResponse.json({ error: 'Name is required' }, { status: 400 });
-    }
+    // 1. 严格对应组长 001_initial_schema.sql 中的 assets 表字段
+    // 注意：去掉了可能冲突的 id 和 created_at，让数据库自动生成
+    const sql = `
+      INSERT INTO assets (
+        name, 
+        type, 
+        serial, 
+        location, 
+        status, 
+        condition, 
+        qr_code
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING *;
+    `;
 
-    const { rows } = await query(
-      `INSERT INTO assets (name, type, serial, price, location, status)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING *`,
-      [
-        name,
-        type || 'Other',
-        serial || 'N/A',
-        price || 0,
-        location || 'Unassigned',
-        status || 'available',
-      ]
-    );
+    const values = [
+      name, 
+      type || 'Hardware', 
+      serial || null, 
+      location || null, 
+      status || 'available', 
+      condition || 'good', 
+      qr_code || `QR-${Date.now()}`
+    ];
 
-    return NextResponse.json(rows[0], { status: 201 });
+    const result = await query(sql, values);
+
+    return NextResponse.json({ 
+      success: true, 
+      data: result.rows[0] 
+    });
+
   } catch (error: any) {
-    console.error('Error creating asset - Full details:', error);
-    if (error.code) {
-      console.error('Database Error Code:', error.code);
-    }
+    console.error('Database Error:', error);
+    // 2. 返回更具体的错误，帮我们判断是哪里没对齐
     return NextResponse.json(
-      { 
-        error: 'Failed to save asset', 
-        details: error.message || String(error),
-        code: error.code
-      }, 
+      { error: error.message || '数据库写入失败' }, 
       { status: 500 }
     );
+  }
+}
+
+export async function GET() {
+  try {
+    const result = await query('SELECT * FROM assets ORDER BY created_at DESC');
+    return NextResponse.json(result.rows);
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
