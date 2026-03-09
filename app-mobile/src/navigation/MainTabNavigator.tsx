@@ -2,7 +2,7 @@ import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 
-import HomeScreen from '../screens/home/HomeScreen';
+import HomeStackNavigator from './HomeStackNavigator';
 import BookingHistoryScreen from '../screens/booking/BookingHistoryScreen';
 import ScanScreen from '../screens/scan/ScanScreen';
 import ProfileScreen from '../screens/profile/ProfileScreen';
@@ -34,9 +34,10 @@ export default function MainTabNavigator() {
                 },
                 tabBarActiveTintColor: '#6366f1',
                 tabBarInactiveTintColor: 'gray',
+                headerShown: false, // Ensure we don't show double headers when nested stack is active
             })}
         >
-            <Tab.Screen name="Home" component={HomeScreen} options={{ title: '首页' }} />
+            <Tab.Screen name="Home" component={HomeStackNavigator} options={{ title: '首页' }} />
             <Tab.Screen name="Bookings" component={BookingHistoryScreen} options={{ title: '借用记录' }} />
             <Tab.Screen name="Scan" component={ScanScreen} options={{ title: '扫码' }} />
             <Tab.Screen name="Profile" component={ProfileScreen} options={{ title: '我的' }} />
