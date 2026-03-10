@@ -15,7 +15,7 @@ import {
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { theme } from '../../theme';
 import { signUp } from '../../services/authService';
-import { AuthStackParamList } from './LoginScreen';
+import { AuthStackParamList } from '../../navigation/AuthStackNavigator';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Register'>;
 

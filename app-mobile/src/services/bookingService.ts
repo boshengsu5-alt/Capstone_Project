@@ -1,0 +1,195 @@
+import { supabase } from './supabase';
+import { getCurrentUser } from './authService';
+import type { DamageSeverity } from '../../../database/types/supabase';
+
+// 手写 Database 类型与 Supabase 客户端泛型不完全兼容，
+// 用 db 别名统一绕过类型推断问题，运行时行为不受影响
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const db = supabase as any;
+
+// ============================================================
+// Booking Service — 借用管理服务
+// ============================================================
+
+/**
+ * Create a new booking request (student submits reservation).
+ * 创建借用请求（学生提交预约），状态初始为 pending
+ *
+ * @param assetId - Asset to book. 要借用的资产 ID
+ * @param startDate - Booking start date ISO string. 借用开始日期
+ * @param endDate - Booking end date ISO string. 借用结束日期
+ * @param notes - Optional notes for the request. 可选的备注
+ * @returns Created booking record. 创建的借用记录
+ */
+export async function createBooking(
+  assetId: string,
+  startDate: string,
+  endDate: string,
+  notes?: string
+) {
+  const user = await getCurrentUser();
+
+  const { data, error } = await db
+    .from('bookings')
+    .insert({
+      asset_id: assetId,
+      borrower_id: user.id,
+      start_date: startDate,
+      end_date: endDate,
+      status: 'pending',
+      notes: notes ?? '',
+      pickup_photo_url: '',
+      return_photo_url: '',
+      rejection_reason: '',
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Get current user's all booking records with asset info.
+ * 获取当前用户的所有借用记录，包含资产信息
+ *
+ * @returns Array of bookings with nested asset data. 包含资产信息的借用记录数组
+ */
+export async function getMyBookings() {
+  const user = await getCurrentUser();
+
+  const { data, error } = await db
+    .from('bookings')
+    .select('*, assets(name, images)')
+    .eq('borrower_id', user.id)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return data ?? [];
+}
+
+/**
+ * Cancel a booking (only pending/approved can be cancelled).
+ * 取消借用请求（仅 pending/approved 状态可取消）
+ *
+ * @param bookingId - Booking UUID to cancel. 要取消的借用 ID
+ */
+export async function cancelBooking(bookingId: string) {
+  const { data, error } = await db
+    .from('bookings')
+    .update({ status: 'cancelled' })
+    .eq('id', bookingId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Activate a booking via QR scan (approved → active). Calls SECURITY DEFINER RPC.
+ * 扫码取货激活借用（approved → active），调用 RPC 函数绕过 RLS
+ *
+ * @param bookingId - The approved booking to activate. 要激活的已批准借用 ID
+ */
+export async function activateBooking(bookingId: string) {
+  const { error } = await db.rpc('activate_booking', {
+    p_booking_id: bookingId,
+  });
+
+  if (error) throw error;
+}
+
+/**
+ * Return an asset via RPC (active/overdue → returned). Calls SECURITY DEFINER RPC.
+ * 归还资产，调用 RPC 函数（学生无权直接 UPDATE assets 表）
+ *
+ * @param bookingId - Booking to return. 要归还的借用 ID
+ * @param photoUrl - Return condition photo URL from Storage. 归还照片 URL
+ */
+export async function returnAsset(bookingId: string, photoUrl: string) {
+  const { error } = await db.rpc('return_booking', {
+    p_booking_id: bookingId,
+    p_photo_url: photoUrl,
+  });
+
+  if (error) throw error;
+}
+
+/**
+ * Submit a damage report (student can INSERT directly per RLS).
+ * 提交损坏报修（RLS 允许学生直接 INSERT damage_reports）
+ *
+ * @param assetId - Damaged asset ID. 损坏的资产 ID
+ * @param bookingId - Related booking ID. 关联的借用 ID
+ * @param description - Damage description. 损坏描述
+ * @param severity - Damage severity level. 损坏严重程度
+ * @param photoUrls - Evidence photo URLs from Storage. 证据照片 URL 数组
+ */
+export async function submitDamageReport(
+  assetId: string,
+  bookingId: string,
+  description: string,
+  severity: DamageSeverity,
+  photoUrls: string[]
+) {
+  const user = await getCurrentUser();
+
+  const { data, error } = await db
+    .from('damage_reports')
+    .insert({
+      asset_id: assetId,
+      booking_id: bookingId,
+      reporter_id: user.id,
+      description,
+      severity,
+      photo_urls: photoUrls,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Get all bookings for a specific asset (for calendar display).
+ * 查询某资产的所有有效预订（供日历组件标红）
+ *
+ * @param assetId - Asset to query bookings for. 要查询的资产 ID
+ * @returns Bookings with date range and status. 包含日期范围和状态的预订列表
+ */
+export async function getBookingsForAsset(assetId: string) {
+  const { data, error } = await db
+    .from('bookings')
+    .select('id, start_date, end_date, status')
+    .eq('asset_id', assetId)
+    .in('status', ['pending', 'approved', 'active']);
+
+  if (error) throw error;
+  return data ?? [];
+}
+
+/**
+ * Find user's approved booking for an asset (for scan-to-activate flow).
+ * 查找用户对某资产的已批准借用（扫码取货流程）
+ *
+ * @param assetId - Asset scanned via QR code. 扫码识别的资产 ID
+ * @returns Approved booking if exists, null otherwise. 已批准的借用记录或 null
+ */
+export async function findApprovedBookingForAsset(assetId: string) {
+  const user = await getCurrentUser();
+
+  const { data, error } = await db
+    .from('bookings')
+    .select('*')
+    .eq('asset_id', assetId)
+    .eq('borrower_id', user.id)
+    .eq('status', 'approved')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}

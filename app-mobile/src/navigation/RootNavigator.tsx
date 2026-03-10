@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ActivityIndicator, View, StyleSheet } from 'react-native';
+import { ActivityIndicator, View, Text, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Session } from '@supabase/supabase-js';
@@ -7,33 +7,51 @@ import { Session } from '@supabase/supabase-js';
 import MainTabNavigator from './MainTabNavigator';
 import AuthStackNavigator from './AuthStackNavigator';
 import { onAuthStateChange, getSession } from '../services/authService';
+import { theme } from '../theme';
 
 const Stack = createNativeStackNavigator();
 
 export default function RootNavigator() {
-  const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
+  // undefined = 初始化中，null = 未登录，Session = 已登录
+  const [session, setSession] = useState<Session | null | undefined>(undefined);
+
+  const [debugState, setDebugState] = useState<string>('Initializing');
 
   useEffect(() => {
-    // 初次加载时获取当前会话
-    getSession()
-      .then((s) => setSession(s))
-      .finally(() => setLoading(false));
-
-    // 监听认证状态变化（登录/登出时自动切换页面）
+    console.log('[DEBUG] RootNavigator: mounted');
+    setDebugState('Mounted, checking auth...');
+    // 立即启动 listener，与 getSession 并行
     const { data: listener } = onAuthStateChange((s) => {
+      console.log('[DEBUG] RootNavigator: onAuthStateChange called with:', s ? s.user.email : 'null');
+      setDebugState('Auth listener triggered');
       setSession(s);
     });
 
+    console.log('[DEBUG] RootNavigator: calling getSession');
+    setDebugState('Calling getSession...');
+    // 并行获取初始会话
+    getSession()
+      .then((s) => {
+        console.log('[DEBUG] RootNavigator: getSession resolved with:', s ? s.user.email : 'null');
+        setDebugState('getSession resolved');
+        setSession(s);
+      })
+      .catch((err) => {
+        console.error('[DEBUG] RootNavigator: getSession error:', err);
+        setDebugState('getSession error: ' + err.message);
+        setSession(null);
+      });
+
     return () => {
-      listener.subscription.unsubscribe();
+      listener?.subscription.unsubscribe();
     };
   }, []);
 
-  if (loading) {
+  if (session === undefined) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#6366F1" />
+        <ActivityIndicator size="large" color={theme.colors.authPrimary} />
+        <Text style={{ marginTop: 20, color: '#666' }}>{debugState}</Text>
       </View>
     );
   }
@@ -56,6 +74,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#1E1B4B',
+    backgroundColor: theme.colors.authBackground,
   },
 });

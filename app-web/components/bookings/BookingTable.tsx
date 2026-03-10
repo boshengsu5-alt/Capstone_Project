@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 'use client';
 
 import React from 'react';
@@ -57,7 +56,7 @@ export default function BookingTable({ bookings, onReview }: BookingTableProps) 
                             <tr key={booking.id} className="hover:bg-gray-50/50 transition-colors group">
                                 <td className="px-6 py-4">
                                     <div className="font-medium text-gray-900">{booking.assets?.name ?? 'Unknown Asset'}</div>
-                                    <div className="text-gray-500 text-xs mt-0.5 mt-1 font-mono">{booking.assets?.qr_code ?? 'N/A'}</div>
+                                    <div className="text-gray-500 text-xs mt-1 font-mono">{booking.assets?.qr_code ?? 'N/A'}</div>
                                 </td>
                                 <td className="px-6 py-4">
                                     <div className="text-gray-900">{booking.profiles?.full_name ?? 'Unknown'}</div>
@@ -95,16 +94,3 @@ export default function BookingTable({ bookings, onReview }: BookingTableProps) 
         </div>
     );
 }
-=======
-import { BookingWithDetails } from '@/lib/bookingService';
-
-export default function BookingTable({
-    bookings,
-    onReview
-}: {
-    bookings: BookingWithDetails[];
-    onReview: (booking: BookingWithDetails) => void;
-}) {
-    return <div>Booking Table Placeholder</div>;
-}
->>>>>>> origin/main

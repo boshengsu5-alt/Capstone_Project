@@ -18,7 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../../theme';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { HomeStackParamList } from '../../navigation/HomeStackNavigator';
-import { supabase } from '../../services/supabase';
+import { getAssets, getCategories } from '../../services/assetService';
 import type { Asset, Category } from '../../../../database/types/supabase';
 
 type HomeScreenNavigationProp = NativeStackNavigationProp<HomeStackParamList, 'HomeScreen'>;
@@ -43,16 +43,13 @@ export default function HomeScreen({ navigation }: Props) {
   React.useEffect(() => {
     const fetchData = async () => {
       try {
-        const [assetsRes, categoriesRes] = await Promise.all([
-          supabase.from('assets').select('*').order('created_at', { ascending: false }),
-          supabase.from('categories').select('*').order('created_at', { ascending: true })
+        // 通过 service 层获取数据，不直接调用 supabase
+        const [assetsData, categoriesData] = await Promise.all([
+          getAssets(),
+          getCategories()
         ]);
-
-        if (assetsRes.error) throw assetsRes.error;
-        if (categoriesRes.error) throw categoriesRes.error;
-
-        setAssets(assetsRes.data || []);
-        setCategories(categoriesRes.data || []);
+        setAssets(assetsData as unknown as Asset[]);
+        setCategories(categoriesData);
       } catch (error) {
         console.error('Error fetching data:', error);
       } finally {
