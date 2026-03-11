@@ -101,6 +101,40 @@ export async function activateBooking(bookingId: string) {
 }
 
 /**
+ * 上传归还照片到 Supabase Storage
+ */
+export async function uploadReturnPhoto(photoUri: string, bookingId: string) {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('用户未登录');
+
+  try {
+    const response = await fetch(photoUri);
+    const blob = await response.blob();
+    const fileExt = photoUri.split('.').pop() || 'jpg';
+    const fileName = `${user.id}/${bookingId}_${Date.now()}.${fileExt}`;
+
+    // 假设 bucket 名称为 "returns" 或者可以叫 "return_photos"
+    // User 的需求: 传给 Supabase 的大存储桶（Storage）。挂起等待系统返回一个网链串(URL)，存进 return_photo_url
+    const { data, error } = await supabase.storage
+      .from('returns')
+      .upload(fileName, blob, {
+        contentType: 'image/jpeg',
+      });
+
+    if (error) throw error;
+
+    const { data: publicUrlData } = supabase.storage
+      .from('returns')
+      .getPublicUrl(data.path);
+
+    return publicUrlData.publicUrl;
+  } catch (error) {
+    console.error('上传归还照片失败:', error);
+    throw new Error('照片上传失败，请重试');
+  }
+}
+
+/**
  * Return an asset via RPC (active/overdue → returned). Calls SECURITY DEFINER RPC.
  * 归还资产，调用 RPC 函数（学生无权直接 UPDATE assets 表）
  *

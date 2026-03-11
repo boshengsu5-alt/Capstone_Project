@@ -1,44 +1,77 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import PhotoCapture from '../../components/PhotoCapture';
+import { uploadReturnPhoto, returnAsset } from '../../services/bookingService';
 
 export default function ReturnScreen() {
-  const [photoCaptured, setPhotoCaptured] = useState(false);
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const navigation = useNavigation();
+  const route = useRoute<any>();
+  const { bookingId, assetName } = route.params || { bookingId: 'test_123', assetName: 'Sony A7M4 相机' };
+
+  const handleSubmit = async () => {
+    if (!photoUri || !bookingId) return;
+
+    try {
+      setIsSubmitting(true);
+      // 1. 上传图片到 Supabase Storage
+      const uploadedUrl = await uploadReturnPhoto(photoUri, bookingId);
+
+      // 2. 将 URL 保存到归还记录中
+      await returnAsset(bookingId, uploadedUrl);
+
+      Alert.alert('归还成功', '设备已归还成功！', [
+        { text: '确定', onPress: () => navigation.goBack() }
+      ]);
+    } catch (error: any) {
+      Alert.alert('归还失败', error.message || '请重试');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scroll}>
         <Text style={styles.title}>归还设备</Text>
-        
+
         <View style={styles.card}>
           <Text style={styles.label}>借用设备：</Text>
-          <Text style={styles.value}>Sony A7M4 相机</Text>
+          <Text style={styles.value}>{assetName}</Text>
         </View>
 
         <Text style={styles.sectionTitle}>强制拍照</Text>
         <Text style={styles.subtext}>为了明确责任，请拍摄设备现状照片：</Text>
-        
+
         <View style={styles.photoContainer}>
-          <PhotoCapture 
+          <PhotoCapture
             onPhotoCaptured={(uri) => {
               console.log("Photo Captured URI:", uri);
-              setPhotoCaptured(true);
-            }} 
+              setPhotoUri(uri);
+            }}
           />
         </View>
 
-        <TouchableOpacity 
-          style={styles.simulateButton} 
-          onPress={() => setPhotoCaptured(true)}
+        <TouchableOpacity
+          style={styles.simulateButton}
+          onPress={() => setPhotoUri('file://simulated/path/to/photo.jpg')}
         >
           <Text style={styles.simulateText}>模拟拍照成功</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={[styles.submitButton, !photoCaptured && styles.disabledButton]} 
-          disabled={!photoCaptured}
+        <TouchableOpacity
+          style={[styles.submitButton, (!photoUri || isSubmitting) && styles.disabledButton]}
+          disabled={!photoUri || isSubmitting}
+          onPress={handleSubmit}
         >
-          <Text style={styles.buttonText}>{photoCaptured ? '确认归还并上传' : '请先完成拍照'}</Text>
+          {isSubmitting ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.buttonText}>{photoUri ? '确认归还并上传' : '请先完成拍照'}</Text>
+          )}
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
