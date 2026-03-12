@@ -5,6 +5,8 @@ import { HomeStackParamList } from '../../navigation/HomeStackNavigator';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../../theme';
 
+import CalendarView from '../../components/CalendarView';
+
 type Props = NativeStackScreenProps<HomeStackParamList, 'AssetDetailScreen'>;
 
 const { width } = Dimensions.get('window');
@@ -22,6 +24,11 @@ const getAssetDetails = (id: string) => ({
 
 export default function AssetDetailScreen({ route, navigation }: Props) {
   const asset = getAssetDetails(route.params?.id || 'default');
+  const [selectedDates, setSelectedDates] = React.useState<{ startDate: string, endDate: string } | null>(null);
+
+  const handleDateChange = (startDate: string, endDate: string) => {
+    setSelectedDates({ startDate, endDate });
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -30,7 +37,7 @@ export default function AssetDetailScreen({ route, navigation }: Props) {
         <View style={styles.imageContainer}>
           <Image source={{ uri: asset.imageUrl }} style={styles.image} resizeMode="cover" />
           <View style={styles.placeholderIcon}>
-             <Ionicons name="camera-outline" size={60} color="#ccc" />
+            <Ionicons name="camera-outline" size={60} color="#ccc" />
           </View>
         </View>
 
@@ -49,32 +56,32 @@ export default function AssetDetailScreen({ route, navigation }: Props) {
 
           {/* Details/Specs */}
           <View style={styles.section}>
-             <Text style={styles.sectionTitle}>设备信息</Text>
-             
-             <View style={styles.infoRow}>
-               <Ionicons name="location-outline" size={20} color={theme.colors.gray} style={styles.infoIcon} />
-               <View>
-                 <Text style={styles.infoLabel}>存放位置</Text>
-                 <Text style={styles.infoValue}>{asset.location}</Text>
-               </View>
-             </View>
+            <Text style={styles.sectionTitle}>设备信息</Text>
 
-             <View style={styles.infoRow}>
-               <Ionicons name="shield-checkmark-outline" size={20} color={theme.colors.gray} style={styles.infoIcon} />
-               <View>
-                 <Text style={styles.infoLabel}>保修状态</Text>
-                 <Text style={styles.infoValue}>{asset.warranty_status}</Text>
-               </View>
-             </View>
+            <View style={styles.infoRow}>
+              <Ionicons name="location-outline" size={20} color={theme.colors.gray} style={styles.infoIcon} />
+              <View>
+                <Text style={styles.infoLabel}>存放位置</Text>
+                <Text style={styles.infoValue}>{asset.location}</Text>
+              </View>
+            </View>
+
+            <View style={styles.infoRow}>
+              <Ionicons name="shield-checkmark-outline" size={20} color={theme.colors.gray} style={styles.infoIcon} />
+              <View>
+                <Text style={styles.infoLabel}>保修状态</Text>
+                <Text style={styles.infoValue}>{asset.warranty_status}</Text>
+              </View>
+            </View>
           </View>
 
-          {/* Calendar Placeholder */}
+          {/* Calendar Section */}
           <View style={styles.calendarSection}>
-            <View style={styles.calendarPlaceholder}>
-              <Ionicons name="calendar-outline" size={32} color={theme.colors.primary} />
-              <Text style={styles.calendarText}>日历组件（待接入）</Text>
-              <Text style={styles.calendarSubText}>选择您需要借用的日期</Text>
-            </View>
+            <Text style={styles.sectionTitle}>选择租期</Text>
+            <CalendarView
+              assetId={asset.id}
+              onDateChange={handleDateChange}
+            />
           </View>
 
         </View>
@@ -82,11 +89,25 @@ export default function AssetDetailScreen({ route, navigation }: Props) {
 
       {/* Bottom Action Bar */}
       <View style={styles.bottomBar}>
-        <TouchableOpacity 
-          style={styles.bookButton}
-          onPress={() => navigation.navigate('BookingFormScreen', { assetId: asset.id })}
+        <TouchableOpacity
+          style={[
+            styles.bookButton,
+            !selectedDates && styles.bookButtonDisabled
+          ]}
+          onPress={() => {
+            if (selectedDates) {
+              navigation.navigate('BookingFormScreen', {
+                assetId: asset.id,
+                startDate: selectedDates.startDate,
+                endDate: selectedDates.endDate
+              });
+            }
+          }}
+          disabled={!selectedDates}
         >
-          <Text style={styles.bookButtonText}>立即预约</Text>
+          <Text style={styles.bookButtonText}>
+            {selectedDates ? '立即预约' : '请先选择日期'}
+          </Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -104,7 +125,7 @@ const styles = StyleSheet.create({
   imageContainer: {
     width: width,
     height: 300,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: theme.colors.inputBackground,
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative'
@@ -151,14 +172,14 @@ const styles = StyleSheet.create({
   },
   descriptionText: {
     fontSize: 15,
-    color: '#4B5563',
+    color: theme.colors.text,
     lineHeight: 24,
   },
   infoRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: theme.spacing.md,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: theme.colors.inputBackground,
     padding: theme.spacing.md,
     borderRadius: 8,
   },
@@ -178,37 +199,16 @@ const styles = StyleSheet.create({
   calendarSection: {
     marginTop: theme.spacing.sm,
   },
-  calendarPlaceholder: {
-    height: 180,
-    borderWidth: 2,
-    borderColor: '#E5E7EB',
-    borderStyle: 'dashed',
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F9FAFB',
-  },
-  calendarText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: theme.colors.text,
-    marginTop: 12,
-    marginBottom: 4,
-  },
-  calendarSubText: {
-    fontSize: 14,
-    color: theme.colors.gray,
-  },
   bottomBar: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.background,
     padding: theme.spacing.md,
     paddingBottom: theme.spacing.lg,
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+    borderTopColor: theme.colors.inputBackground,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -3 },
     shadowOpacity: 0.05,
@@ -221,8 +221,12 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
   },
+  bookButtonDisabled: {
+    backgroundColor: theme.colors.gray,
+    opacity: 0.6,
+  },
   bookButtonText: {
-    color: '#fff',
+    color: theme.colors.background,
     fontSize: 18,
     fontWeight: 'bold',
   }

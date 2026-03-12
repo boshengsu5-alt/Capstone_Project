@@ -1,23 +1,23 @@
-import React from 'react';
-import { View, Text, StyleSheet, FlatList, SafeAreaView } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  SafeAreaView,
+  ActivityIndicator,
+  Image,
+  RefreshControl,
+  TouchableOpacity,
+} from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { supabase } from '../../services/supabase';
+import type { Booking, Asset, BookingStatus } from '../../../../database/types/supabase';
 
-import type { BookingStatus } from '../../../../database/types/supabase';
-
-// Use an extended type because frontend needs to display asset names (typically from a join query).
-// (因前端列表需展示资产名称，此处定义带有资产名称的联合数据类型以适配UI)
-type BookingWithAsset = {
-  id: string;
-  asset_name: string;
-  date: string;
-  status: BookingStatus;
+// Define the joined data type
+type BookingWithAsset = Booking & {
+  assets: Asset | null;
 };
-
-const FAKE_BOOKINGS: BookingWithAsset[] = [
-  { id: '1', asset_name: 'Sony A7M4', date: '2026-03-05', status: 'returned' },
-  { id: '2', asset_name: 'DJI Ronin RS3', date: '2026-03-07', status: 'active' },
-  { id: '3', asset_name: 'Canon 24-70mm', date: '2026-03-01', status: 'overdue' },
-  { id: '4', asset_name: 'Apple iPad Pro', date: '2026-03-06', status: 'active' },
-];
 
 const getStatusLabel = (status: BookingStatus) => {
   switch (status) {
@@ -32,35 +32,127 @@ const getStatusLabel = (status: BookingStatus) => {
   }
 };
 
+const getStatusColor = (status: BookingStatus) => {
+  switch (status) {
+    case 'overdue': return '#EF4444'; // Red
+    case 'active': return '#F59E0B'; // Orange
+    case 'returned': return '#10B981'; // Green
+    case 'approved': return '#6366F1'; // Indigo/Purple
+    case 'pending': return '#6B7280'; // Gray
+    default: return '#9CA3AF';
+  }
+};
+
 export default function BookingHistoryScreen() {
+  const navigation = useNavigation<any>();
+  const [bookings, setBookings] = useState<BookingWithAsset[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchBookings = async (isRefreshing = false) => {
+    if (!isRefreshing) setLoading(true);
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData.user) return;
+
+      const { data, error } = await supabase
+        .from('bookings')
+        .select('*, assets(*)')
+        .eq('borrower_id', userData.user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setBookings(data as BookingWithAsset[]);
+    } catch (error) {
+      console.error('Error fetching bookings:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchBookings();
+  }, []);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchBookings(true);
+  };
+
   const renderItem = ({ item }: { item: BookingWithAsset }) => {
-    // Determine visual priority based on status. Overdue items should be highly visible to enforce return policies.
-    // (根据状态决定视觉优先级：逾期物品必须高亮警示，以强制执行资产归还政策)
-    let statusColor = '#4CAF50';
-    if (item.status === 'overdue') statusColor = '#F44336';
-    if (item.status === 'active') statusColor = '#FF9800';
+    const asset = item.assets;
+    const statusColor = getStatusColor(item.status);
+    const imageUrl = asset?.images?.[0];
 
     return (
-      <View style={[styles.card, { borderLeftColor: statusColor }]}>
-        <View style={styles.cardHeader}>
-          <Text style={styles.itemName}>{item.asset_name}</Text>
-          <View style={[styles.statusBadge, { backgroundColor: statusColor + '20' }]}>
-            <Text style={[styles.status, { color: statusColor }]}>{getStatusLabel(item.status)}</Text>
+      <View style={styles.card}>
+        <View style={styles.cardContent}>
+          {imageUrl ? (
+            <Image source={{ uri: imageUrl }} style={styles.assetImage} />
+          ) : (
+            <View style={[styles.assetImage, styles.placeholderImage]}>
+              <Text style={styles.placeholderText}>No Image</Text>
+            </View>
+          )}
+          <View style={styles.infoContainer}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.itemName} numberOfLines={1}>{asset?.name || '未知设备'}</Text>
+              <View style={[styles.statusBadge, { backgroundColor: statusColor + '15' }]}>
+                <Text style={[styles.status, { color: statusColor }]}>{getStatusLabel(item.status)}</Text>
+              </View>
+            </View>
+            
+            <View style={styles.dateRow}>
+              <Text style={styles.dateLabel}>借用周期：</Text>
+              <Text style={styles.dateRange}>
+                {item.start_date} 至 {item.end_date}
+              </Text>
+            </View>
           </View>
         </View>
-        <Text style={styles.date}>借用日期：{item.date}</Text>
       </View>
     );
   };
 
+  if (loading && !refreshing) {
+    return (
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" color="#6366F1" />
+      </View>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>我的借用记录</Text>
+      <View style={styles.header}>
+        <Text style={styles.title}>我的借用记录</Text>
+      </View>
+
       <FlatList
-        data={FAKE_BOOKINGS}
+        data={bookings}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         contentContainerStyle={styles.list}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#6366F1']} />
+        }
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Image 
+              source={{ uri: 'https://img.icons8.com/illustrations/external-tulpahn-outline-color-tulpahn/100/external-empty-box-delivery-tulpahn-outline-color-tulpahn.png' }} 
+              style={styles.emptyImage} 
+            />
+            <Text style={styles.emptyTitle}>暂无借用记录</Text>
+            <Text style={styles.emptySubtitle}>您还没有借用过任何东西，快去首页逛逛吧</Text>
+            <TouchableOpacity 
+              style={styles.goHomeButton}
+              onPress={() => navigation.navigate('HomeTab')}
+            >
+              <Text style={styles.goHomeButtonText}>去首页看看</Text>
+            </TouchableOpacity>
+          </View>
+        }
       />
     </SafeAreaView>
   );
@@ -69,54 +161,133 @@ export default function BookingHistoryScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F7F7FD',
+    backgroundColor: '#F9FAFB',
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+  },
+  header: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 10,
   },
   title: {
     fontSize: 28,
-    fontWeight: 'bold',
-    color: '#333333',
-    marginHorizontal: 20,
-    marginTop: 20,
-    marginBottom: 16,
+    fontWeight: '800',
+    color: '#111827',
   },
   list: {
     paddingHorizontal: 20,
     paddingBottom: 40,
+    flexGrow: 1,
   },
   card: {
     backgroundColor: '#ffffff',
-    padding: 18,
-    borderRadius: 12,
+    borderRadius: 16,
     marginBottom: 16,
-    borderLeftWidth: 6,
+    padding: 12,
     shadowColor: '#000',
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.04,
     shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 10,
-    elevation: 3,
+    shadowRadius: 12,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+  },
+  cardContent: {
+    flexDirection: 'row',
+  },
+  assetImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+  },
+  placeholderImage: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  placeholderText: {
+    fontSize: 10,
+    color: '#9CA3AF',
+  },
+  infoContainer: {
+    flex: 1,
+    marginLeft: 14,
+    justifyContent: 'center',
   },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
+    alignItems: 'flex-start',
+    marginBottom: 8,
   },
   itemName: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#222222',
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#1F2937',
+    flex: 1,
+    marginRight: 8,
   },
   statusBadge: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: 8,
   },
   status: {
-    fontSize: 14,
-    fontWeight: 'bold',
+    fontSize: 12,
+    fontWeight: '700',
   },
-  date: {
+  dateRow: {
+    marginTop: 4,
+  },
+  dateLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginBottom: 2,
+  },
+  dateRange: {
+    fontSize: 13,
+    color: '#374151',
+    fontWeight: '500',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 100,
+  },
+  emptyImage: {
+    width: 120,
+    height: 120,
+    marginBottom: 16,
+    opacity: 0.6,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#374151',
+    marginBottom: 8,
+  },
+  emptySubtitle: {
     fontSize: 14,
-    color: '#666666',
+    color: '#6B7280',
+    textAlign: 'center',
+    paddingHorizontal: 40,
+    marginBottom: 24,
+  },
+  goHomeButton: {
+    backgroundColor: '#6366F1',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  goHomeButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
