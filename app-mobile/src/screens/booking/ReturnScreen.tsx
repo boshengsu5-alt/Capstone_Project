@@ -1,96 +1,411 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  SafeAreaView,
+  TouchableOpacity,
+  ScrollView,
+  Alert,
+  ActivityIndicator,
+  Image,
+} from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import PhotoCapture from '../../components/PhotoCapture';
 import { uploadReturnPhoto, returnAsset } from '../../services/bookingService';
 
+// ─────────────────────────────────────────────────
+// Step indicator helpers
+// ─────────────────────────────────────────────────
+type Step = 1 | 2 | 3;
+
+const STEPS = [
+  { num: 1, label: '拍摄实物照片' },
+  { num: 2, label: '上传至云端' },
+  { num: 3, label: '确认归还' },
+] as const;
+
+function StepIndicator({ current }: { current: Step }) {
+  return (
+    <View style={styles.stepRow}>
+      {STEPS.map((s, idx) => {
+        const done = current > s.num;
+        const active = current === s.num;
+        return (
+          <React.Fragment key={s.num}>
+            <View style={styles.stepItem}>
+              <View
+                style={[
+                  styles.stepCircle,
+                  done && styles.stepDone,
+                  active && styles.stepActive,
+                ]}
+              >
+                {done ? (
+                  <Text style={styles.stepCheckmark}>✓</Text>
+                ) : (
+                  <Text style={[styles.stepNum, active && styles.stepNumActive]}>
+                    {s.num}
+                  </Text>
+                )}
+              </View>
+              <Text
+                style={[
+                  styles.stepLabel,
+                  active && styles.stepLabelActive,
+                  done && styles.stepLabelDone,
+                ]}
+              >
+                {s.label}
+              </Text>
+            </View>
+            {idx < STEPS.length - 1 && (
+              <View style={[styles.stepLine, done && styles.stepLineDone]} />
+            )}
+          </React.Fragment>
+        );
+      })}
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────
+// URL display card
+// ─────────────────────────────────────────────────
+function UploadedUrlCard({ url }: { url: string }) {
+  return (
+    <View style={styles.urlCard}>
+      <View style={styles.urlHeader}>
+        <Text style={styles.urlIcon}>🔗</Text>
+        <Text style={styles.urlTitle}>照片已上传至云端</Text>
+      </View>
+      <Text style={styles.urlLabel}>归还凭证链接（已写入工单）：</Text>
+      <View style={styles.urlBox}>
+        <Text style={styles.urlText} numberOfLines={3} selectable>
+          {url}
+        </Text>
+      </View>
+      <Text style={styles.urlHint}>✅ 该链接已自动附加到您的归还工单，请妥善保管</Text>
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────
+// Main Screen
+// ─────────────────────────────────────────────────
 export default function ReturnScreen() {
   const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [uploadedUrl, setUploadedUrl] = useState<string | null>(null);
+
+  // Step 1 = camera not taken yet
+  // Step 2 = uploading
+  // Step 3 = success, ready to confirm
+  const [step, setStep] = useState<Step>(1);
+  const [isUploading, setIsUploading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const navigation = useNavigation();
   const route = useRoute<any>();
-  const { bookingId, assetName } = route.params || { bookingId: 'test_123', assetName: 'Sony A7M4 相机' };
+  const { bookingId, assetName } = route.params ?? {
+    bookingId: 'test_booking_001',
+    assetName: 'Sony A7M4 相机',
+  };
 
-  const handleSubmit = async () => {
-    if (!photoUri || !bookingId) return;
+  // ── Step 1 → 2: photo captured, auto-upload ──
+  const handlePhotoCaptured = async (uri: string) => {
+    console.log('[ReturnScreen] 照片已拍摄，URI:', uri);
+    setPhotoUri(uri);
+    setStep(2);
+    setIsUploading(true);
+
+    try {
+      const url = await uploadReturnPhoto(uri, bookingId);
+      console.log('[ReturnScreen] 上传成功，公开链接:', url);
+      setUploadedUrl(url);
+      setStep(3);
+    } catch (error: any) {
+      console.error('[ReturnScreen] 上传失败:', error);
+      Alert.alert(
+        '上传失败',
+        error.message ?? '照片上传至云端时出错，请重拍后重试。',
+        [{ text: '重拍', onPress: () => { setPhotoUri(null); setStep(1); } }]
+      );
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // ── Step 3: confirm return ──
+  const handleConfirmReturn = async () => {
+    if (!uploadedUrl || !bookingId) return;
 
     try {
       setIsSubmitting(true);
-      // 1. 上传图片到 Supabase Storage
-      const uploadedUrl = await uploadReturnPhoto(photoUri, bookingId);
-
-      // 2. 将 URL 保存到归还记录中
       await returnAsset(bookingId, uploadedUrl);
-
-      Alert.alert('归还成功', '设备已归还成功！', [
-        { text: '确定', onPress: () => navigation.goBack() }
-      ]);
+      Alert.alert(
+        '归还成功 🎉',
+        `设备「${assetName}」已成功归还！\n\n归还照片已存档至工单，感谢您的使用。`,
+        [{ text: '完成', onPress: () => navigation.goBack() }]
+      );
     } catch (error: any) {
-      Alert.alert('归还失败', error.message || '请重试');
+      Alert.alert('归还失败', error.message ?? '请联系管理员或稍后重试。');
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  // ── Allow user to retake photo ──
+  const handleRetake = () => {
+    setPhotoUri(null);
+    setUploadedUrl(null);
+    setStep(1);
+  };
+
+  // ─────────────────────────────────────────────
+  // Render
+  // ─────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scroll}>
-        <Text style={styles.title}>归还设备</Text>
+      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
 
-        <View style={styles.card}>
-          <Text style={styles.label}>借用设备：</Text>
-          <Text style={styles.value}>{assetName}</Text>
+        {/* ── Header ── */}
+        <View style={styles.header}>
+          <Text style={styles.title}>📦 归还设备</Text>
+          <View style={styles.assetCard}>
+            <Text style={styles.assetLabel}>当前归还：</Text>
+            <Text style={styles.assetName} numberOfLines={1}>{assetName}</Text>
+          </View>
         </View>
 
-        <Text style={styles.sectionTitle}>强制拍照</Text>
-        <Text style={styles.subtext}>为了明确责任，请拍摄设备现状照片：</Text>
+        {/* ── Step Indicator ── */}
+        <StepIndicator current={step} />
 
-        <View style={styles.photoContainer}>
-          <PhotoCapture
-            onPhotoCaptured={(uri) => {
-              console.log("Photo Captured URI:", uri);
-              setPhotoUri(uri);
-            }}
-          />
-        </View>
+        {/* ── Step 1 Banner ── */}
+        {step === 1 && (
+          <View style={styles.infoBanner}>
+            <Text style={styles.bannerIcon}>📸</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.bannerTitle}>必须拍摄实物照片</Text>
+              <Text style={styles.bannerText}>
+                为明确归还时的设备状态，系统将强制要求拍摄一张设备实物照片。照片上传成功后方可完成归还。
+              </Text>
+            </View>
+          </View>
+        )}
 
-        <TouchableOpacity
-          style={styles.simulateButton}
-          onPress={() => setPhotoUri('file://simulated/path/to/photo.jpg')}
-        >
-          <Text style={styles.simulateText}>模拟拍照成功</Text>
-        </TouchableOpacity>
+        {/* ── Camera / Preview ── */}
+        {!photoUri ? (
+          <View style={styles.cameraWrapper}>
+            <PhotoCapture onPhotoCaptured={handlePhotoCaptured} />
+          </View>
+        ) : (
+          <View style={styles.previewWrapper}>
+            <Image source={{ uri: photoUri }} style={styles.previewImage} />
+            {/* Uploading overlay */}
+            {isUploading && (
+              <View style={styles.uploadOverlay}>
+                <ActivityIndicator size="large" color="#ffffff" />
+                <Text style={styles.uploadingText}>正在上传至 Supabase Storage…</Text>
+              </View>
+            )}
+            {/* Retake button (only after upload completes) */}
+            {!isUploading && (
+              <TouchableOpacity style={styles.retakeBtn} onPress={handleRetake}>
+                <Text style={styles.retakeBtnText}>🔄 重拍</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
 
-        <TouchableOpacity
-          style={[styles.submitButton, (!photoUri || isSubmitting) && styles.disabledButton]}
-          disabled={!photoUri || isSubmitting}
-          onPress={handleSubmit}
-        >
-          {isSubmitting ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>{photoUri ? '确认归还并上传' : '请先完成拍照'}</Text>
-          )}
-        </TouchableOpacity>
+        {/* ── Uploaded URL Card (Step 3) ── */}
+        {uploadedUrl && <UploadedUrlCard url={uploadedUrl} />}
+
+        {/* ── Confirm Button ── */}
+        {step === 3 && uploadedUrl && (
+          <TouchableOpacity
+            style={[styles.confirmBtn, isSubmitting && styles.confirmBtnDisabled]}
+            disabled={isSubmitting}
+            onPress={handleConfirmReturn}
+            activeOpacity={0.85}
+          >
+            {isSubmitting ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Text style={styles.confirmBtnIcon}>✅</Text>
+                <Text style={styles.confirmBtnText}>确认归还设备</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        )}
+
+        {/* ── Locked hint (no photo yet) ── */}
+        {step === 1 && (
+          <View style={styles.lockedHint}>
+            <Text style={styles.lockedIcon}>🔒</Text>
+            <Text style={styles.lockedText}>归还按钮将在照片上传成功后解锁</Text>
+          </View>
+        )}
+
+        <View style={{ height: 40 }} />
       </ScrollView>
     </SafeAreaView>
   );
 }
 
+// ─────────────────────────────────────────────────
+// Styles
+// ─────────────────────────────────────────────────
+const PURPLE = '#6200EE';
+const PURPLE_LIGHT = '#EDE7F6';
+const SUCCESS = '#00897B';
+const SUCCESS_LIGHT = '#E0F2F1';
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F7F7FD' },
+  container: { flex: 1, backgroundColor: '#F4F4FB' },
   scroll: { padding: 20 },
-  title: { fontSize: 28, fontWeight: 'bold', marginBottom: 20, color: '#333' },
-  card: { backgroundColor: '#fff', padding: 18, borderRadius: 12, marginBottom: 20, flexDirection: 'row', alignItems: 'center' },
-  label: { fontSize: 16, color: '#666' },
-  value: { fontSize: 18, fontWeight: 'bold', color: '#222', marginLeft: 10 },
-  sectionTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 8, color: '#333' },
-  subtext: { fontSize: 14, color: '#666', marginBottom: 16 },
-  photoContainer: { marginBottom: 20 },
-  simulateButton: { backgroundColor: '#e0e0e0', padding: 12, borderRadius: 8, alignItems: 'center', marginBottom: 24 },
-  simulateText: { color: '#666', fontWeight: 'bold' },
-  submitButton: { backgroundColor: '#6200ee', padding: 16, borderRadius: 8, alignItems: 'center' },
-  disabledButton: { backgroundColor: '#cccccc' },
-  buttonText: { color: '#ffffff', fontSize: 16, fontWeight: 'bold' }
+
+  // Header
+  header: { marginBottom: 24 },
+  title: { fontSize: 26, fontWeight: '800', color: '#1a1a2e', marginBottom: 12 },
+  assetCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 14,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#6200EE',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  assetLabel: { fontSize: 14, color: '#888', marginRight: 8 },
+  assetName: { fontSize: 17, fontWeight: '700', color: '#222', flex: 1 },
+
+  // Step Indicator
+  stepRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 24,
+    paddingHorizontal: 4,
+  },
+  stepItem: { alignItems: 'center', flex: 0 },
+  stepCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#E0E0E0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  stepActive: { backgroundColor: PURPLE },
+  stepDone: { backgroundColor: SUCCESS },
+  stepNum: { fontSize: 14, fontWeight: '700', color: '#999' },
+  stepNumActive: { color: '#fff' },
+  stepCheckmark: { fontSize: 16, color: '#fff', fontWeight: '800' },
+  stepLabel: { fontSize: 11, color: '#aaa', textAlign: 'center', maxWidth: 70 },
+  stepLabelActive: { color: PURPLE, fontWeight: '700' },
+  stepLabelDone: { color: SUCCESS },
+  stepLine: { flex: 1, height: 3, backgroundColor: '#E0E0E0', marginBottom: 20, marginHorizontal: 4, borderRadius: 2 },
+  stepLineDone: { backgroundColor: SUCCESS },
+
+  // Info Banner
+  infoBanner: {
+    flexDirection: 'row',
+    backgroundColor: PURPLE_LIGHT,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 18,
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  bannerIcon: { fontSize: 24, marginRight: 4 },
+  bannerTitle: { fontSize: 15, fontWeight: '700', color: PURPLE, marginBottom: 4 },
+  bannerText: { fontSize: 13, color: '#555', lineHeight: 20 },
+
+  // Camera & Preview
+  cameraWrapper: { marginBottom: 20, borderRadius: 16, overflow: 'hidden' },
+  previewWrapper: {
+    height: 320,
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 20,
+    backgroundColor: '#000',
+  },
+  previewImage: { width: '100%', height: '100%', resizeMode: 'cover' },
+  uploadOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 14,
+  },
+  uploadingText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  retakeBtn: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  retakeBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+
+  // URL Card
+  urlCard: {
+    backgroundColor: SUCCESS_LIGHT,
+    borderRadius: 14,
+    padding: 18,
+    marginBottom: 24,
+    borderWidth: 1.5,
+    borderColor: '#B2DFDB',
+  },
+  urlHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 8 },
+  urlIcon: { fontSize: 20 },
+  urlTitle: { fontSize: 16, fontWeight: '700', color: SUCCESS },
+  urlLabel: { fontSize: 13, color: '#555', marginBottom: 8, fontWeight: '600' },
+  urlBox: {
+    backgroundColor: '#ffffff',
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#B2DFDB',
+    marginBottom: 10,
+  },
+  urlText: { fontSize: 12, color: '#007965', fontFamily: 'monospace', lineHeight: 18 },
+  urlHint: { fontSize: 12, color: '#00695C', fontWeight: '600' },
+
+  // Confirm Button
+  confirmBtn: {
+    backgroundColor: PURPLE,
+    borderRadius: 14,
+    padding: 18,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 10,
+    shadowColor: PURPLE,
+    shadowOpacity: 0.4,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  confirmBtnDisabled: { backgroundColor: '#BDBDBD', shadowOpacity: 0 },
+  confirmBtnIcon: { fontSize: 20 },
+  confirmBtnText: { color: '#fff', fontSize: 18, fontWeight: '800', letterSpacing: 0.5 },
+
+  // Locked hint
+  lockedHint: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+    opacity: 0.6,
+  },
+  lockedIcon: { fontSize: 16 },
+  lockedText: { fontSize: 14, color: '#888' },
 });
