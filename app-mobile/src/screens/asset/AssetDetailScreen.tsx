@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, SafeAreaView, ActivityIndicator, Dimensions } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, SafeAreaView, ActivityIndicator, Dimensions, StatusBar } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { HomeStackParamList } from '../../navigation/HomeStackNavigator';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,6 +7,7 @@ import { theme } from '../../theme';
 import { getAssetById } from '../../services/assetService';
 import type { Asset, Category } from '../../../../database/types/supabase';
 import CalendarView from '../../components/CalendarView';
+import ErrorView from '../../components/ErrorView';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'AssetDetailScreen'>;
 type FullAsset = Asset & { categories: Category };
@@ -15,33 +16,37 @@ const { width } = Dimensions.get('window');
 
 export default function AssetDetailScreen({ route, navigation }: Props) {
   const assetId = route.params?.id || '';
-  const [asset, setAsset] = React.useState<FullAsset | null>(null);
-  const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState<string | null>(null);
-  const [selectedDates, setSelectedDates] = React.useState<{ startDate: string, endDate: string } | null>(null);
+  const [asset, setAsset] = useState<FullAsset | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedDates, setSelectedDates] = useState<{ startDate: string, endDate: string } | null>(null);
 
-  React.useEffect(() => {
-    async function fetchAsset() {
-      if (!assetId) {
-        setError('未提供设备 ID');
-        setLoading(false);
-        return;
-      }
-      try {
-        const data = await getAssetById(assetId);
-        if (!data) {
-          setError('找不到该设备');
-        } else {
-          setAsset(data);
-        }
-      } catch (err: any) {
-        setError(err.message || '获取设备详情失败');
-      } finally {
-        setLoading(false);
-      }
+  const fetchAssetDetails = useCallback(async () => {
+    if (!assetId) {
+      setError('未提供设备 ID');
+      setLoading(false);
+      return;
     }
-    fetchAsset();
+
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getAssetById(assetId);
+      if (data) {
+        setAsset(data);
+      } else {
+        setError('找不到该设备');
+      }
+    } catch (err: any) {
+      setError(err.message || '获取设备详情失败');
+    } finally {
+      setLoading(false);
+    }
   }, [assetId]);
+
+  useEffect(() => {
+    fetchAssetDetails();
+  }, [fetchAssetDetails]);
 
   const handleDateChange = (startDate: string, endDate: string) => {
     setSelectedDates({ startDate, endDate });
@@ -49,34 +54,35 @@ export default function AssetDetailScreen({ route, navigation }: Props) {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
-          <Text style={{ marginTop: 10, color: theme.colors.gray }}>正在加载设备详情...</Text>
-        </View>
-      </SafeAreaView>
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <Text style={{ marginTop: 10, color: theme.colors.gray }}>正在加载设备详情...</Text>
+      </View>
     );
   }
 
   if (error || !asset) {
     return (
       <SafeAreaView style={styles.safeArea}>
-        <View style={[styles.container, { justifyContent: 'center', alignItems: 'center', padding: 20 }]}>
-          <Ionicons name="alert-circle-outline" size={60} color={theme.colors.danger} />
-          <Text style={{ marginTop: 10, fontSize: 16, color: theme.colors.text }}>{error || '加载失败'}</Text>
-          <TouchableOpacity 
-            style={[styles.bookButton, { marginTop: 20, paddingHorizontal: 30 }]}
-            onPress={() => navigation.goBack()}
-          >
-            <Text style={styles.bookButtonText}>返回</Text>
-          </TouchableOpacity>
-        </View>
+        <ErrorView 
+          message={error || "获取设备详情失败"} 
+          onRetry={fetchAssetDetails} 
+        />
+        <TouchableOpacity 
+          style={[styles.bookButton, { margin: 20, paddingHorizontal: 30 }]}
+          onPress={() => navigation.goBack()}
+        >
+          <Text style={styles.bookButtonText}>返回</Text>
+        </TouchableOpacity>
       </SafeAreaView>
     );
   }
 
+  const isAvailable = asset.status === 'available';
+
   return (
     <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="dark-content" />
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
         {/* Product Image */}
         <View style={styles.imageContainer}>
@@ -92,14 +98,19 @@ export default function AssetDetailScreen({ route, navigation }: Props) {
         <View style={styles.contentContainer}>
           {/* Header Info */}
           <View style={styles.header}>
-            <Text style={styles.title}>{asset.name}</Text>
-            <Text style={styles.price}>{asset.categories?.name_zh || asset.categories?.name || '分类'}</Text>
+            <View style={styles.titleInfo}>
+              <Text style={styles.title}>{asset.name}</Text>
+              <View style={styles.categoryBadge}>
+                <Text style={styles.categoryText}>{asset.categories?.name_zh || asset.categories?.name || '未分类'}</Text>
+              </View>
+            </View>
+            <Text style={styles.price}>¥{asset.purchase_price ? '?' : '0'}/天</Text>
           </View>
 
           {/* Description */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>商品简介</Text>
-            <Text style={styles.descriptionText}>{asset.description || '暂无简介'}</Text>
+            <Text style={styles.descriptionText}>{asset.description || '暂无详细描述。'}</Text>
           </View>
 
           {/* Details/Specs */}
@@ -117,8 +128,10 @@ export default function AssetDetailScreen({ route, navigation }: Props) {
             <View style={styles.infoRow}>
               <Ionicons name="barcode-outline" size={20} color={theme.colors.gray} style={styles.infoIcon} />
               <View>
-                <Text style={styles.infoLabel}>资产编号</Text>
-                <Text style={styles.infoValue}>{asset.serial_number || 'N/A'}</Text>
+                <Text style={styles.infoLabel}>状态 & 编号</Text>
+                <Text style={[styles.infoValue, { color: isAvailable ? '#10b981' : theme.colors.danger }]}>
+                  {isAvailable ? '现存可借' : '借出/不可用'} · {asset.serial_number || '无编号'}
+                </Text>
               </View>
             </View>
           </View>
@@ -140,10 +153,10 @@ export default function AssetDetailScreen({ route, navigation }: Props) {
         <TouchableOpacity
           style={[
             styles.bookButton,
-            !selectedDates && styles.bookButtonDisabled
+            (!selectedDates || !isAvailable) && styles.bookButtonDisabled
           ]}
           onPress={() => {
-            if (selectedDates) {
+            if (selectedDates && isAvailable) {
               navigation.navigate('BookingFormScreen', {
                 assetId: asset.id,
                 startDate: selectedDates.startDate,
@@ -151,10 +164,10 @@ export default function AssetDetailScreen({ route, navigation }: Props) {
               });
             }
           }}
-          disabled={!selectedDates}
+          disabled={!selectedDates || !isAvailable}
         >
           <Text style={styles.bookButtonText}>
-            {selectedDates ? '立即预约' : '请先选择日期'}
+            {!isAvailable ? '不可借用' : (selectedDates ? '立即预约' : '请先选择日期')}
           </Text>
         </TouchableOpacity>
       </View>
@@ -170,6 +183,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: theme.colors.background,
+  },
   imageContainer: {
     width: width,
     height: 300,
@@ -181,7 +200,6 @@ const styles = StyleSheet.create({
   image: {
     width: '100%',
     height: '100%',
-    position: 'absolute'
   },
   placeholderIcon: {
     opacity: 0.5
@@ -196,16 +214,31 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginBottom: theme.spacing.lg,
   },
-  title: {
+  titleInfo: {
     flex: 1,
+    marginRight: theme.spacing.md,
+  },
+  title: {
     fontSize: 22,
     fontWeight: 'bold',
     color: theme.colors.text,
-    marginRight: theme.spacing.md,
     lineHeight: 30,
+    marginBottom: 4,
+  },
+  categoryBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#F3E8FF',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  categoryText: {
+    fontSize: 12,
+    color: theme.colors.primary,
+    fontWeight: '600',
   },
   price: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
     color: theme.colors.primary,
   },
@@ -274,7 +307,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   bookButtonText: {
-    color: theme.colors.background,
+    color: '#fff',
     fontSize: 18,
     fontWeight: 'bold',
   }
