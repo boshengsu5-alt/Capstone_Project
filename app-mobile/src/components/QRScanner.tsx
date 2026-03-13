@@ -1,54 +1,112 @@
-import React, { useState } from 'react';
-import { View, StyleSheet, Text, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, StyleSheet, Text, TouchableOpacity, Dimensions, Animated } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { Ionicons } from '@expo/vector-icons';
+
+const { width } = Dimensions.get('window');
+const SCAN_BOX_SIZE = width * 0.7;
 
 interface QRScannerProps {
   onScan: (data: string) => void;
+  isScanning: boolean;
 }
 
-export default function QRScanner({ onScan }: QRScannerProps) {
+export default function QRScanner({ onScan, isScanning }: QRScannerProps) {
   const [permission, requestPermission] = useCameraPermissions();
-  const [scanned, setScanned] = useState(false);
+  const scanLineAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (isScanning) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(scanLineAnim, {
+            toValue: SCAN_BOX_SIZE,
+            duration: 2000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(scanLineAnim, {
+            toValue: 0,
+            duration: 2000,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+    } else {
+      scanLineAnim.stopAnimation();
+    }
+  }, [isScanning]);
 
   if (!permission) {
-    return <View style={styles.container}><Text>加载权限中...</Text></View>;
+    return (
+      <View style={styles.centerContainer}>
+        <Text style={styles.infoText}>正在请求相机权限...</Text>
+      </View>
+    );
   }
 
   if (!permission.granted) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.text}>需要相机权限才能扫描二维码</Text>
-        <TouchableOpacity style={styles.button} onPress={requestPermission}>
-          <Text style={styles.buttonText}>授权相机</Text>
+      <View style={styles.centerContainer}>
+        <Ionicons name="camera-outline" size={64} color="#6366f1" />
+        <Text style={styles.permissionText}>需要相机权限才能扫描二维码</Text>
+        <TouchableOpacity style={styles.authButton} onPress={requestPermission}>
+          <Text style={styles.authButtonText}>立即授权</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
-  const handleBarcodeScanned = ({ type, data }: { type: string; data: string }) => {
-    if (!scanned) {
-      setScanned(true);
+  const handleBarcodeScanned = ({ data }: { data: string }) => {
+    if (isScanning && data) {
       onScan(data);
-      // Scan cooldown
-      setTimeout(() => setScanned(false), 2000);
     }
   };
 
   return (
     <View style={styles.container}>
       <CameraView
-        style={styles.camera}
+        style={StyleSheet.absoluteFillObject}
         facing="back"
         barcodeScannerSettings={{
-          barcodeTypes: ["qr", "ean13", "code128"],
+          barcodeTypes: ["qr"],
         }}
-        onBarcodeScanned={scanned ? undefined : handleBarcodeScanned}
+        onBarcodeScanned={isScanning ? handleBarcodeScanned : undefined}
       >
         <View style={styles.overlay}>
-          <View style={styles.scannerBox} />
-          <Text style={styles.scanText}>
-            {scanned ? "识别成功！" : "请将二维码放入框内"}
-          </Text>
+          {/* Top dark area */}
+          <View style={[styles.unfocusedArea, styles.topArea]} />
+          
+          <View style={styles.middleRow}>
+            {/* Left dark area */}
+            <View style={styles.unfocusedArea} />
+            
+            {/* Clear scanning box */}
+            <View style={styles.scannerBox}>
+              <View style={[styles.corner, styles.topLeft]} />
+              <View style={[styles.corner, styles.topRight]} />
+              <View style={[styles.corner, styles.bottomLeft]} />
+              <View style={[styles.corner, styles.bottomRight]} />
+              
+              {isScanning && (
+                <Animated.View 
+                  style={[
+                    styles.scanLine,
+                    { transform: [{ translateY: scanLineAnim }] }
+                  ]} 
+                />
+              )}
+            </View>
+            
+            {/* Right dark area */}
+            <View style={styles.unfocusedArea} />
+          </View>
+          
+          {/* Bottom dark area */}
+          <View style={[styles.unfocusedArea, styles.bottomArea]}>
+            <Text style={styles.scanText}>
+              {!isScanning ? "处理中..." : "将二维码对准框内，即可自动识别"}
+            </Text>
+          </View>
         </View>
       </CameraView>
     </View>
@@ -56,19 +114,116 @@ export default function QRScanner({ onScan }: QRScannerProps) {
 }
 
 const styles = StyleSheet.create({
-  container: { height: 300, width: '100%', borderRadius: 16, overflow: 'hidden', backgroundColor: '#000' },
-  camera: { flex: 1 },
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  text: { fontSize: 16, color: '#333333', marginBottom: 20 },
-  button: { backgroundColor: '#6200ee', padding: 12, borderRadius: 8 },
-  buttonText: { color: '#fff', fontWeight: 'bold' },
-  scannerBox: { 
-    width: 200, 
-    height: 200, 
-    borderWidth: 2, 
-    borderColor: '#00FF00', 
-    backgroundColor: 'transparent',
-    borderRadius: 16
+  container: {
+    flex: 1,
+    backgroundColor: '#000',
   },
-  scanText: { color: '#fff', marginTop: 20, fontSize: 16, fontWeight: 'bold' }
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#f8fafc',
+  },
+  overlay: {
+    flex: 1,
+  },
+  unfocusedArea: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+  },
+  topArea: {
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    paddingBottom: 40,
+  },
+  middleRow: {
+    flexDirection: 'row',
+    height: SCAN_BOX_SIZE,
+  },
+  bottomArea: {
+    paddingTop: 40,
+    alignItems: 'center',
+  },
+  scannerBox: {
+    width: SCAN_BOX_SIZE,
+    height: SCAN_BOX_SIZE,
+    position: 'relative',
+    backgroundColor: 'transparent',
+  },
+  scanLine: {
+    height: 2,
+    width: '100%',
+    backgroundColor: '#6366f1',
+    position: 'absolute',
+    shadowColor: "#6366f1",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  corner: {
+    position: 'absolute',
+    width: 25,
+    height: 25,
+    borderColor: '#6366f1',
+  },
+  topLeft: {
+    top: 0,
+    left: 0,
+    borderTopWidth: 4,
+    borderLeftWidth: 4,
+    borderTopLeftRadius: 12,
+  },
+  topRight: {
+    top: 0,
+    right: 0,
+    borderTopWidth: 4,
+    borderRightWidth: 4,
+    borderTopRightRadius: 12,
+  },
+  bottomLeft: {
+    bottom: 0,
+    left: 0,
+    borderBottomWidth: 4,
+    borderLeftWidth: 4,
+    borderBottomLeftRadius: 12,
+  },
+  bottomRight: {
+    bottom: 0,
+    right: 0,
+    borderBottomWidth: 4,
+    borderRightWidth: 4,
+    borderBottomRightRadius: 12,
+  },
+  scanText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '500',
+    textAlign: 'center',
+    paddingHorizontal: 30,
+    lineHeight: 22,
+  },
+  infoText: {
+    fontSize: 16,
+    color: '#64748b',
+  },
+  permissionText: {
+    fontSize: 16,
+    color: '#334155',
+    marginTop: 16,
+    marginBottom: 24,
+    textAlign: 'center',
+  },
+  authButton: {
+    backgroundColor: '#6366f1',
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    borderRadius: 99,
+  },
+  authButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
 });

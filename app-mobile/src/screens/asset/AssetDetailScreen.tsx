@@ -1,57 +1,106 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, SafeAreaView, Dimensions } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, SafeAreaView, Dimensions, ActivityIndicator } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { HomeStackParamList } from '../../navigation/HomeStackNavigator';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../../theme';
-
+import { getAssetById } from '../../services/assetService';
+import type { Asset, Category } from '../../../../database/types/supabase';
+import ErrorView from '../../components/ErrorView';
 import CalendarView from '../../components/CalendarView';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'AssetDetailScreen'>;
 
 const { width } = Dimensions.get('window');
 
-// Mock data fetch based on ID
-const getAssetDetails = (id: string) => ({
-  id,
-  name: id === '1' ? '特级咖啡豆' : '索尼 Alpha 7 IV 全画幅微单相机',
-  description: '这是一款高性能的设备，适合各种专业场景。提供卓越的画质和稳定的性能表现。',
-  location: '主校区 图书馆 3F-A区 储物柜05',
-  warranty_status: '保修期内 (至 2027年5月)',
-  imageUrl: 'https://via.placeholder.com/400x300.png?text=Product+Image',
-  price: '¥299/天'
-});
-
 export default function AssetDetailScreen({ route, navigation }: Props) {
-  const asset = getAssetDetails(route.params?.id || 'default');
-  const [selectedDates, setSelectedDates] = React.useState<{ startDate: string, endDate: string } | null>(null);
+  const assetId = route.params?.id;
+  const [asset, setAsset] = useState<(Asset & { categories: Category }) | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [selectedDates, setSelectedDates] = useState<{ startDate: string, endDate: string } | null>(null);
+
+  const fetchAssetDetails = useCallback(async () => {
+    if (!assetId) {
+      setError(true);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setError(false);
+    try {
+      const data = await getAssetById(assetId);
+      if (data) {
+        setAsset(data);
+      } else {
+        setError(true);
+      }
+    } catch (err) {
+      console.error('Error fetching asset details:', err);
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  }, [assetId]);
+
+  useEffect(() => {
+    fetchAssetDetails();
+  }, [fetchAssetDetails]);
 
   const handleDateChange = (startDate: string, endDate: string) => {
     setSelectedDates({ startDate, endDate });
   };
 
+  if (loading) {
+    return (
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+      </View>
+    );
+  }
+
+  if (error || !asset) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <ErrorView 
+          message={!assetId ? "无效的设备 ID" : "获取设备详情失败"} 
+          onRetry={fetchAssetDetails} 
+        />
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-        {/* Placeholder for Product Image */}
+        {/* Product Image */}
         <View style={styles.imageContainer}>
-          <Image source={{ uri: asset.imageUrl }} style={styles.image} resizeMode="cover" />
-          <View style={styles.placeholderIcon}>
-            <Ionicons name="camera-outline" size={60} color="#ccc" />
-          </View>
+          {asset.images && asset.images.length > 0 ? (
+            <Image source={{ uri: asset.images[0] }} style={styles.image} resizeMode="cover" />
+          ) : (
+            <View style={styles.placeholderIcon}>
+              <Ionicons name="image-outline" size={60} color="#ccc" />
+            </View>
+          )}
         </View>
 
         <View style={styles.contentContainer}>
           {/* Header Info */}
           <View style={styles.header}>
-            <Text style={styles.title}>{asset.name}</Text>
-            <Text style={styles.price}>{asset.price}</Text>
+            <View style={styles.titleInfo}>
+              <Text style={styles.title}>{asset.name}</Text>
+              <View style={styles.categoryBadge}>
+                <Text style={styles.categoryText}>{asset.categories?.name || '未分类'}</Text>
+              </View>
+            </View>
+            <Text style={styles.price}>¥{asset.price_per_day || 0}/天</Text>
           </View>
 
           {/* Description */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>商品简介</Text>
-            <Text style={styles.descriptionText}>{asset.description}</Text>
+            <Text style={styles.descriptionText}>{asset.description || '暂无详细描述。'}</Text>
           </View>
 
           {/* Details/Specs */}
@@ -62,15 +111,17 @@ export default function AssetDetailScreen({ route, navigation }: Props) {
               <Ionicons name="location-outline" size={20} color={theme.colors.gray} style={styles.infoIcon} />
               <View>
                 <Text style={styles.infoLabel}>存放位置</Text>
-                <Text style={styles.infoValue}>{asset.location}</Text>
+                <Text style={styles.infoValue}>{asset.location || '未知'}</Text>
               </View>
             </View>
 
             <View style={styles.infoRow}>
               <Ionicons name="shield-checkmark-outline" size={20} color={theme.colors.gray} style={styles.infoIcon} />
               <View>
-                <Text style={styles.infoLabel}>保修状态</Text>
-                <Text style={styles.infoValue}>{asset.warranty_status}</Text>
+                <Text style={styles.infoLabel}>状态</Text>
+                <Text style={[styles.infoValue, { color: asset.status === 'available' ? '#10b981' : theme.colors.danger }]}>
+                  {asset.status === 'available' ? '现存可借' : '借出/不可用'}
+                </Text>
               </View>
             </View>
           </View>
@@ -92,7 +143,7 @@ export default function AssetDetailScreen({ route, navigation }: Props) {
         <TouchableOpacity
           style={[
             styles.bookButton,
-            !selectedDates && styles.bookButtonDisabled
+            (!selectedDates || asset.status !== 'available') && styles.bookButtonDisabled
           ]}
           onPress={() => {
             if (selectedDates) {
@@ -103,10 +154,10 @@ export default function AssetDetailScreen({ route, navigation }: Props) {
               });
             }
           }}
-          disabled={!selectedDates}
+          disabled={!selectedDates || asset.status !== 'available'}
         >
           <Text style={styles.bookButtonText}>
-            {selectedDates ? '立即预约' : '请先选择日期'}
+            {asset.status !== 'available' ? '不可借用' : (selectedDates ? '立即预约' : '请先选择日期')}
           </Text>
         </TouchableOpacity>
       </View>
@@ -122,6 +173,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: theme.colors.background,
+  },
   imageContainer: {
     width: width,
     height: 300,
@@ -133,7 +190,6 @@ const styles = StyleSheet.create({
   image: {
     width: '100%',
     height: '100%',
-    position: 'absolute'
   },
   placeholderIcon: {
     opacity: 0.5
@@ -148,13 +204,28 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginBottom: theme.spacing.lg,
   },
-  title: {
+  titleInfo: {
     flex: 1,
+    marginRight: theme.spacing.md,
+  },
+  title: {
     fontSize: 22,
     fontWeight: 'bold',
     color: theme.colors.text,
-    marginRight: theme.spacing.md,
     lineHeight: 30,
+    marginBottom: 4,
+  },
+  categoryBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#F3E8FF',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  categoryText: {
+    fontSize: 12,
+    color: theme.colors.primary,
+    fontWeight: '600',
   },
   price: {
     fontSize: 20,
@@ -226,7 +297,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   bookButtonText: {
-    color: theme.colors.background,
+    color: '#fff',
     fontSize: 18,
     fontWeight: 'bold',
   }

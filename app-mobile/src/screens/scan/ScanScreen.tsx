@@ -1,32 +1,45 @@
-import React from 'react';
-import { StyleSheet, Text, View, SafeAreaView } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import React, { useState, useCallback } from 'react';
+import { StyleSheet, Text, View, StatusBar } from 'react-native';
+import { useNavigation, useIsFocused } from '@react-navigation/native';
 import QRScanner from '../../components/QRScanner';
 
 export default function ScanScreen() {
   const navigation = useNavigation<any>();
+  const isFocused = useIsFocused();
+  const [isScanning, setIsScanning] = useState(true);
 
-  const handleScan = (data: string) => {
+  // 每次页面重新获得焦点时，确保可以扫描
+  React.useEffect(() => {
+    if (isFocused) {
+      setIsScanning(true);
+    }
+  }, [isFocused]);
+
+  const handleScan = useCallback((data: string) => {
+    if (!isScanning) return;
+    
+    setIsScanning(false); // 立刻阻止重复扫码
+    
     // 扫到的 qr_code 值就是 assetId
     // 跳转到 Home Tab 的 AssetDetailScreen 查看详情
     navigation.navigate('HomeTab', {
       screen: 'AssetDetailScreen',
       params: { id: data },
     });
-  };
+  }, [isScanning, navigation]);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" />
       <View style={styles.header}>
-        <Text style={styles.title}>设备扫码出库</Text>
+        <Text style={styles.title}>设备扫码</Text>
+        <Text style={styles.subtitle}>快速查看资产详情</Text>
       </View>
+      
       <View style={styles.scannerWrapper}>
-        <QRScanner onScan={handleScan} />
+        <QRScanner onScan={handleScan} isScanning={isScanning && isFocused} />
       </View>
-      <View style={styles.hintContainer}>
-        <Text style={styles.hintText}>将二维码对准扫描框，自动识别设备信息</Text>
-      </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -36,26 +49,26 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
   },
   header: {
+    position: 'absolute',
+    top: 60,
+    left: 0,
+    right: 0,
+    zIndex: 10,
     alignItems: 'center',
-    paddingVertical: 16,
-    backgroundColor: '#111',
+    paddingHorizontal: 20,
   },
   title: {
     color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 24,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  subtitle: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 14,
+    marginTop: 4,
   },
   scannerWrapper: {
     flex: 1,
-    padding: 20,
-    justifyContent: 'center',
-  },
-  hintContainer: {
-    paddingBottom: 40,
-    alignItems: 'center',
-  },
-  hintText: {
-    color: '#A5B4FC',
-    fontSize: 14,
   },
 });
