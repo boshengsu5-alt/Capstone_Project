@@ -23,7 +23,7 @@ import { theme } from '../../theme';
 
 type DamageReportRouteProp = RouteProp<BookingsStackParamList, 'DamageReport'>;
 
-// 严重程度配置
+// 严重程度配置 (Severity Options)
 const SEVERITY_OPTIONS: { value: DamageSeverity; label: string; emoji: string; color: string }[] = [
   { value: 'minor',    label: '轻微损坏', emoji: '🟡', color: '#F59E0B' },
   { value: 'moderate', label: '中度损坏', emoji: '🟠', color: '#F97316' },
