@@ -16,6 +16,19 @@ import Header from '@/components/layout/Header';
 import { cn } from '@/lib/utils';
 import { Asset } from '@/types/database';
 import { getAssets } from '@/lib/assetService';
+import { 
+  PieChart, 
+  Pie, 
+  Cell, 
+  AreaChart, 
+  Area, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer,
+  Legend
+} from 'recharts';
 
 export default function DashboardPage() {
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -39,7 +52,59 @@ export default function DashboardPage() {
     fetchAssetsData();
   }, []);
 
-  // Statistics calculation
+  // --- Data Processing for Charts ---
+  
+  // 1. Pie Chart Data: Category Distribution
+  const pieData = assets.reduce((acc: any[], asset: any) => {
+    const categoryName = asset.categories?.name || 'Uncategorized';
+    const existing = acc.find(item => item.name === categoryName);
+    if (existing) {
+      existing.value += 1;
+    } else {
+      acc.push({ name: categoryName, value: 1 });
+    }
+    return acc;
+  }, []);
+
+  const PIE_COLORS = ['#8884d8', '#f6ad55', '#4fd1c5', '#f687b3'];
+
+  // 2. Line/Area Chart Data: Growth Trend
+  const processGrowthData = () => {
+    if (assets.length === 0) return [];
+
+    // Map assets to months based on purchase_date or created_at
+    const monthData = assets.map(asset => {
+      const dateStr = asset.purchase_date || asset.created_at;
+      const date = new Date(dateStr);
+      // Fallback if date is invalid
+      const yearMonth = isNaN(date.getTime()) 
+        ? new Date().toISOString().slice(0, 7) // Default to current month if invalid
+        : date.toISOString().slice(0, 7); 
+      return yearMonth;
+    }).sort();
+
+    // Count per month
+    const counts = monthData.reduce((acc: Record<string, number>, month) => {
+      acc[month] = (acc[month] || 0) + 1;
+      return acc;
+    }, {});
+
+    // Cumulative sum
+    let cumulative = 0;
+    const sortedMonths = Object.keys(counts).sort();
+    return sortedMonths.map(month => {
+      cumulative += counts[month];
+      return {
+        month,
+        total: cumulative
+      };
+    });
+  };
+
+  const growthData = processGrowthData();
+
+  // Statistics calculation for the remaining small cards if needed, or just focus on charts as requested.
+  // The user asked to "Upgrade the page, introduce visual reports", implicitly replacing or augmenting the top section.
   const totalAssets = assets.length;
   const loanedAssets = assets.filter(a => a.status === 'borrowed' || (a.status as string) === 'loaned').length;
   const pendingAssets = assets.filter(a => (a.status as string) === 'pending_approval').length;
@@ -60,17 +125,22 @@ export default function DashboardPage() {
     return matchesSearch && matchesCategory;
   });
 
-  const StatCard = ({ icon: Icon, label, value, colorClass }: { icon: any, label: string, value: number, colorClass: string }) => (
-    <div className="flex items-center gap-4 bg-gray-900/50 backdrop-blur-md border border-white/10 p-6 rounded-2xl hover:border-purple-500/50 transition-all duration-300 group">
-      <div className={cn("p-3 rounded-xl bg-opacity-10", colorClass.replace('text-', 'bg-'))}>
-        <Icon className={cn("w-6 h-6", colorClass)} />
-      </div>
-      <div>
-        <p className="text-gray-400 text-sm font-medium">{label}</p>
-        <h3 className="text-2xl font-bold text-white mt-1 group-hover:text-purple-400 transition-colors uppercase tracking-tight">{value}</h3>
-      </div>
-    </div>
-  );
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-gray-900/90 border border-purple-500/30 backdrop-blur-md p-3 rounded-xl shadow-2xl">
+          <p className="text-gray-400 text-xs font-semibold mb-1">{label || payload[0].name}</p>
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: payload[0].fill || payload[0].color }} />
+            <p className="text-white font-bold text-sm">
+              {payload[0].value} {payload[0].name === 'total' ? 'Assets' : ''}
+            </p>
+          </div>
+        </div>
+      );
+    }
+    return null;
+  };
 
   return (
     <div className="flex flex-col flex-1 h-full w-full bg-[#050505] text-gray-100 overflow-y-auto font-sans selection:bg-purple-500/30">
@@ -78,58 +148,98 @@ export default function DashboardPage() {
       
       <main className="flex-1 p-6 lg:p-10 max-w-[1600px] mx-auto w-full space-y-10">
         
-        {/* --- Top Section: Stats Summary --- */}
-        <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Left Block: Core Stats */}
-          <div className="grid grid-cols-2 gap-6 bg-gradient-to-br from-gray-900/40 to-black/40 p-1 rounded-3xl border border-white/5 ring-1 ring-white/5 backdrop-blur-sm">
-             <div className="p-6 grid grid-cols-1 gap-6">
-                <StatCard 
-                  icon={Package} 
-                  label="Total Assets" 
-                  value={totalAssets} 
-                  colorClass="text-purple-400" 
-                />
-                <StatCard 
-                  icon={ArrowUpRight} 
-                  label="Loaned" 
-                  value={loanedAssets} 
-                  colorClass="text-amber-400" 
-                />
-             </div>
-             <div className="p-6 grid grid-cols-1 gap-6">
-                <StatCard 
-                  icon={Clock} 
-                  label="Pending" 
-                  value={pendingAssets} 
-                  colorClass="text-blue-400" 
-                />
-                <StatCard 
-                  icon={AlertTriangle} 
-                  label="Overdue" 
-                  value={overdueAssets} 
-                  colorClass="text-rose-400" 
-                />
-             </div>
+        {/* --- Top Section: Visual Reports --- */}
+        <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          
+          {/* Left Block: Pie Chart (Asset Category Distribution) */}
+          <div className="lg:col-span-4 bg-gray-900/40 backdrop-blur-xl border border-white/5 rounded-3xl p-6 flex flex-col h-[400px]">
+            <div className="mb-4">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Package className="w-5 h-5 text-purple-400" />
+                Asset Distribution
+              </h3>
+              <p className="text-gray-500 text-xs px-7">By Category</p>
+            </div>
+            <div className="flex-1 min-h-0">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={pieData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {pieData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} stroke="rgba(255,255,255,0.05)" />
+                    ))}
+                  </Pie>
+                  <Tooltip content={<CustomTooltip />} />
+                  <Legend 
+                    verticalAlign="bottom" 
+                    height={36} 
+                    iconType="circle"
+                    formatter={(value) => <span className="text-xs text-gray-400 font-medium">{value}</span>}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
           </div>
 
-          {/* Right Block: Decorative / Quick Action */}
-          <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-purple-900/20 via-black to-gray-900/20 p-8 flex flex-col justify-center">
-            <div className="absolute top-0 right-0 p-10 opacity-10">
-                <Package className="w-48 h-48 text-purple-500 -rotate-12" />
+          {/* Right Block: Area Chart (Asset Growth Trend) */}
+          <div className="lg:col-span-8 bg-gray-900/40 backdrop-blur-xl border border-white/5 rounded-3xl p-6 flex flex-col h-[400px]">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <ArrowUpRight className="w-5 h-5 text-amber-400" />
+                  Inventory Growth
+                </h3>
+                <p className="text-gray-500 text-xs px-7">Cumulative Total Trend</p>
+              </div>
+              <div className="flex items-center gap-4 text-xs font-mono text-gray-500">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+                  Total Assets: {totalAssets}
+                </div>
+              </div>
             </div>
-            <h2 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-amber-200">
-               Welcome to UniGear Admin
-            </h2>
-            <p className="mt-4 text-gray-400 max-w-md leading-relaxed">
-               Monitor your equipment, manage loans, and track maintenance status from a single unified workspace.
-            </p>
-            <div className="mt-8 flex gap-4">
-               <button className="px-6 py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-semibold transition-all shadow-lg shadow-purple-900/20 flex items-center gap-2">
-                  View Reports <ExternalLink className="w-4 h-4" />
-               </button>
-               <button className="px-6 py-2.5 bg-gray-800 hover:bg-gray-700 text-white rounded-xl font-semibold transition-all border border-white/10 flex items-center gap-2">
-                  System Settings <ChevronRight className="w-4 h-4" />
-               </button>
+            
+            <div className="flex-1 min-h-0">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={growthData}>
+                  <defs>
+                    <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#8884d8" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#8884d8" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
+                  <XAxis 
+                    dataKey="month" 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fill: '#6b7280', fontSize: 10 }}
+                    dy={10}
+                  />
+                  <YAxis 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fill: '#6b7280', fontSize: 10 }}
+                  />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Area 
+                    type="monotone" 
+                    dataKey="total" 
+                    stroke="#8884d8" 
+                    strokeWidth={3}
+                    fillOpacity={1} 
+                    fill="url(#colorTotal)" 
+                    animationDuration={1500}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
             </div>
           </div>
         </section>
