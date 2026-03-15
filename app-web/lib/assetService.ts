@@ -111,3 +111,42 @@ export async function updateAsset(id: string, updates: AssetUpdate): Promise<Ass
 
   return updatedAsset as Asset;
 }
+
+// ============================================================
+// Asset Reviews. 资产评价
+// ============================================================
+
+/**
+ * Get all reviews for a specific asset.
+ * 获取特定资产的所有评价。
+ *
+ * @param assetId - The ID of the asset.
+ * @returns List of reviews for this asset. 返回特定资产的评价列表。
+ */
+export async function getAssetReviews(assetId: string) {
+  // First, get all booking IDs for this asset
+  const { data: bookings, error: bookingsError } = await db
+    .from('bookings')
+    .select('id')
+    .eq('asset_id', assetId);
+
+  if (bookingsError || !bookings || bookings.length === 0) {
+    return [];
+  }
+
+  const bookingIds = bookings.map((b: { id: string }) => b.id);
+
+  // Then get all reviews for those bookings
+  const { data: reviews, error: reviewsError } = await db
+    .from('reviews')
+    .select('*')
+    .in('booking_id', bookingIds)
+    .order('created_at', { ascending: false });
+
+  if (reviewsError) {
+    console.error('Error fetching asset reviews:', reviewsError);
+    return [];
+  }
+
+  return reviews ?? [];
+}
