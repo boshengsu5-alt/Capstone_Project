@@ -62,9 +62,9 @@ export async function createBooking(
   const user = await getCurrentUser();
 
   // 先校验时间冲突，冲突时直接抛出错误拦截提交
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  if (new Date(startDate) < now) {
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  if (startDate < todayStr) {
     throw new Error('不能预订过去的日期');
   }
 

@@ -43,8 +43,9 @@ export default function ReviewModal({
       Alert.alert('评价成功', '感谢您的反馈！');
       onSuccess();
       onClose();
-    } catch (error: any) {
-      Alert.alert('评价失败', error.message || '系统繁忙，请稍后再试');
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : '系统繁忙，请稍后再试';
+      Alert.alert('评价失败', msg);
     } finally {
       setIsSubmitting(false);
     }
