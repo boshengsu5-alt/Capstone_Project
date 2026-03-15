@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { QRCodeSVG } from 'qrcode.react';
 import Header from '@/components/layout/Header';
 import AssetForm from '@/components/assets/AssetForm';
+import AssetReviewsModal from '@/components/assets/AssetReviewsModal';
+import { QRCodeSVG } from 'qrcode.react';
 import { cn } from '@/lib/utils';
 import { Asset, Category } from '@/types/database';
 
@@ -16,6 +17,7 @@ export default function AssetsPage() {
   const [assets, setAssets] = useState<AssetWithCategory[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [selectedAssetForReview, setSelectedAssetForReview] = useState<{id: string, name: string} | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
 
@@ -143,7 +145,7 @@ export default function AssetsPage() {
                           <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Condition</th>
                           <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Status</th>
                           <th scope="col" className="relative py-3.5 pl-3 pr-4 sm:pr-6">
-                            <span className="sr-only">Edit</span>
+                            <span className="sr-only">Actions</span>
                           </th>
                         </tr>
                       </thead>
@@ -193,7 +195,13 @@ export default function AssetsPage() {
                                 {asset.status}
                               </span>
                             </td>
-                            <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
+                            <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6 flex items-center justify-end gap-3">
+                              <button 
+                                onClick={() => setSelectedAssetForReview({ id: asset.id, name: asset.name })}
+                                className="text-yellow-600 hover:text-yellow-900 dark:text-yellow-400 dark:hover:text-yellow-300"
+                              >
+                                Reviews<span className="sr-only">, {asset.name}</span>
+                              </button>
                               <button className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300">
                                 Edit<span className="sr-only">, {asset.name}</span>
                               </button>
@@ -223,6 +231,14 @@ export default function AssetsPage() {
                onSuccess={handleFormSuccess}
              />
           </div>
+        )}
+
+        {selectedAssetForReview && (
+          <AssetReviewsModal 
+            assetId={selectedAssetForReview.id}
+            assetName={selectedAssetForReview.name}
+            onClose={() => setSelectedAssetForReview(null)}
+          />
         )}
       </main>
     </div>

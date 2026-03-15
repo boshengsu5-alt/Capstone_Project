@@ -77,8 +77,29 @@ export default function AssetForm({ onCancel, onSuccess }: AssetFormProps) {
     e.preventDefault();
     setError(null);
 
+    // 狂补异常验证（设备长度/必填项/黄色警告框）
     if (!formData.name.trim()) {
-      setError('Asset name is required.');
+      setError('设备名称不能为空 (Asset name is required)');
+      return;
+    }
+    
+    if (!formData.category_id.trim()) {
+      setError('必须选择或填写分类 (Category is required)');
+      return;
+    }
+
+    if (!formData.location.trim()) {
+      setError('必须填写存放位置 (Storage location is required)');
+      return;
+    }
+
+    if (!formData.serial_number.trim()) {
+      setError('必须填写设备序列号或长度规格 (Serial number/specs required)');
+      return;
+    }
+
+    if (images.length === 0) {
+      setError('请至少上传一张设备图片以供识别 (At least 1 image required)');
       return;
     }
 
@@ -305,10 +326,10 @@ export default function AssetForm({ onCancel, onSuccess }: AssetFormProps) {
         </div>
 
         {error && (
-          <div className="px-8 py-4 mx-8 sm:mx-12 mb-8 rounded-xl bg-rose-50 dark:bg-rose-900/30 border border-rose-200 dark:border-rose-800">
-            <p className="text-sm font-medium text-rose-600 dark:text-rose-400 flex items-center">
-               <span className="mr-2.5 flex-shrink-0 bg-rose-100 dark:bg-rose-800 rounded-full p-1">⚠️</span> 
-               {error}
+          <div className="px-8 py-4 mx-8 sm:mx-12 mb-8 rounded-xl bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-300 dark:border-yellow-700 shadow-sm animate-bounce">
+            <p className="text-sm font-bold text-yellow-800 dark:text-yellow-300 flex items-center">
+              <span className="mr-2.5 flex-shrink-0 bg-yellow-200 dark:bg-yellow-800 rounded-full p-1 text-base">⚠️</span>
+              {error}
             </p>
           </div>
         )}
