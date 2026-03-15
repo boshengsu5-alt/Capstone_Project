@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { 
   View, 
   Text, 
@@ -16,17 +16,15 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../../theme';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { HomeStackParamList } from '../../navigation/HomeStackNavigator';
 import { getAssets, getCategories } from '../../services/assetService';
 import { checkOverdueBookings } from '../../services/bookingService';
 import type { Asset, Category } from '../../../../database/types/supabase';
+import ErrorView from '../../components/ErrorView';
+import SafeImage from '../../components/SafeImage';
 
-type HomeScreenNavigationProp = NativeStackNavigationProp<HomeStackParamList, 'HomeScreen'>;
-
-interface Props {
-  navigation: HomeScreenNavigationProp;
-}
+type Props = NativeStackScreenProps<HomeStackParamList, 'HomeScreen'>;
 
 const { width } = Dimensions.get('window');
 
@@ -36,36 +34,43 @@ const AD_DATA = [
   { id: '3', color: '#A78BFA', text: '优质精选，猜你喜欢' },
 ];
 
-export default function HomeScreen({ navigation }: Props) {
-  const [assets, setAssets] = useState<Asset[]>([]);
+export default function HomeScreen({ navigation, route }: Props) {
+  const [assets, setAssets] = useState<(Asset & { categories: Category })[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<boolean>(false);
+
+  // 从 CategoryScreen 传入的分类筛选 ID
+  const categoryId = route.params?.categoryId;
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setError(false);
+    try {
+      // 通过 service 层获取数据，不直接调用 supabase
+      const [assetsData, categoriesData] = await Promise.all([
+        getAssets(categoryId),
+        getCategories(),
+        // 兜底逾期检测：pg_cron 免费版不可用，每次进入首页时触发一次
+        checkOverdueBookings().catch(() => {}),
+      ]);
+      setAssets(assetsData);
+      setCategories(categoriesData);
+    } catch (error) {
+      // console.error('Error fetching data:', error);
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  }, [categoryId]);
 
   React.useEffect(() => {
-    const fetchData = async () => {
-      try {
-        // 通过 service 层获取数据，不直接调用 supabase
-        const [assetsData, categoriesData] = await Promise.all([
-          getAssets(),
-          getCategories(),
-          // 兜底逾期检测：pg_cron 免费版不可用，每次进入首页时触发一次
-          checkOverdueBookings().catch(() => {}),
-        ]);
-        setAssets(assetsData as unknown as Asset[]);
-        setCategories(categoriesData);
-      } catch (error) {
-        console.error('Error fetching data:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   const renderCategory = ({ item }: { item: Category }) => (
     <TouchableOpacity 
       style={styles.categoryHomeItem} 
-      // @ts-ignore - CategoryScreen param will be updated later
       onPress={() => navigation.navigate('CategoryScreen', { categoryId: item.id })}
     >
       <View style={styles.categoryHomeIcon}>
@@ -75,18 +80,16 @@ export default function HomeScreen({ navigation }: Props) {
     </TouchableOpacity>
   );
 
-  const renderProduct = ({ item }: { item: Asset }) => (
+  const renderProduct = ({ item }: { item: Asset & { categories: Category } }) => (
     <TouchableOpacity 
       style={styles.productCard} 
       onPress={() => navigation.navigate('AssetDetailScreen', { id: item.id })}
     >
-      {item.images && item.images.length > 0 ? (
-        <Image source={{ uri: item.images[0] }} style={styles.productImagePlaceholder} />
-      ) : (
-        <View style={styles.productImagePlaceholder}>
-          <Ionicons name="image-outline" size={40} color={theme.colors.gray} />
-        </View>
-      )}
+      <SafeImage 
+        uri={item.images?.[0]} 
+        style={styles.productImagePlaceholder} 
+        placeholderSize={40} 
+      />
       <Text style={styles.productTitle} numberOfLines={1}>{item.name}</Text>
       <Text style={[styles.productPrice, { fontSize: 13, color: theme.colors.gray, fontWeight: 'normal' }]}>状态: {item.status === 'available' ? '现存' : item.status}</Text>
     </TouchableOpacity>
@@ -143,11 +146,20 @@ export default function HomeScreen({ navigation }: Props) {
 
   if (loading) {
     return (
-      <SafeAreaView style={[styles.safeArea, { justifyContent: 'center', alignItems: 'center' }]}>
+      <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <ErrorView onRetry={fetchData} />
       </SafeAreaView>
     );
   }
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <FlatList
@@ -169,6 +181,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: theme.colors.primary,
     paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: theme.colors.background,
   },
   header: {
     backgroundColor: theme.colors.primary,
@@ -265,16 +283,16 @@ const styles = StyleSheet.create({
   productCard: {
     width: '48%',
     backgroundColor: '#fff',
-    borderRadius: 8,
-    marginBottom: theme.spacing.md,
-    padding: theme.spacing.sm,
+    borderRadius: 12,
+    marginBottom: theme.spacing.lg,
+    padding: theme.spacing.md,
     borderWidth: 1,
     borderColor: '#F3F4F6',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
+    shadowColor: theme.colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 4,
   },
   productImagePlaceholder: {
     width: '100%',

@@ -29,27 +29,33 @@ import {
   ResponsiveContainer,
   Legend
 } from 'recharts';
+import { bookingService, BookingWithDetails } from '@/lib/bookingService';
 
 export default function DashboardPage() {
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [bookings, setBookings] = useState<BookingWithDetails[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
 
-  const fetchAssetsData = async () => {
+  const fetchData = async () => {
     try {
       setIsLoading(true);
-      const data = await getAssets();
-      setAssets(data);
+      const [assetsData, bookingsData] = await Promise.all([
+        getAssets(),
+        bookingService.getBookings(),
+      ]);
+      setAssets(assetsData);
+      setBookings(bookingsData);
     } catch (error) {
-      console.error('Failed to fetch assets', error);
+      console.error('Failed to fetch dashboard data', error);
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchAssetsData();
+    fetchData();
   }, []);
 
   // --- Data Processing for Charts ---
@@ -103,16 +109,16 @@ export default function DashboardPage() {
 
   const growthData = processGrowthData();
 
-  // Statistics calculation for the remaining small cards if needed, or just focus on charts as requested.
-  // The user asked to "Upgrade the page, introduce visual reports", implicitly replacing or augmenting the top section.
+  // Statistics calculation: Assets from database, Bookings status handling
   const totalAssets = assets.length;
-  const loanedAssets = assets.filter(a => a.status === 'borrowed' || (a.status as string) === 'loaned').length;
-  const pendingAssets = assets.filter(a => (a.status as string) === 'pending_approval').length;
-  const overdueAssets = assets.filter(a => a.warranty_status === 'expired').length;
+  const loanedAssets = assets.filter(a => a.status === 'borrowed').length;
+  const pendingBookings = bookings.filter(b => b.status === 'pending').length;
+  const overdueBookings = bookings.filter(b => b.status === 'overdue').length;
 
-  const categoriesMap = assets.reduce((acc, asset: any) => {
-    if (asset.categories) {
-      acc[asset.categories.id] = asset.categories.name;
+  const categoriesMap = assets.reduce((acc, asset) => {
+    const cat = (asset as any).categories;
+    if (cat) {
+      acc[cat.id] = cat.name;
     }
     return acc;
   }, {} as Record<string, string>);
@@ -274,7 +280,7 @@ export default function DashboardPage() {
                   onChange={(e) => setSelectedCategory(e.target.value)}
                 >
                   <option value="All" className="bg-gray-900">All Categories</option>
-                  {categories.map((cat: any) => (
+                  {categories.map((cat) => (
                     <option key={cat.id} value={cat.id} className="bg-gray-900">{cat.name}</option>
                   ))}
                 </select>

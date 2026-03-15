@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, ActivityIndicator, Text } from 'react-native';
+import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity } from 'react-native';
 import { Calendar, LocaleConfig, DateData } from 'react-native-calendars';
 import { format, addDays, isBefore, isEqual, parseISO } from 'date-fns';
 import { getBookingsForAsset } from '../services/bookingService';
@@ -40,6 +40,7 @@ interface MarkedDates {
  */
 const CalendarView: React.FC<CalendarViewProps> = ({ assetId, onDateChange }) => {
     const [loading, setLoading] = useState(true);
+    const [fetchError, setFetchError] = useState(false);
     const [bookedDates, setBookedDates] = useState<MarkedDates>({});
     const [selectionStart, setSelectionStart] = useState<string | null>(null);
     const [selectionEnd, setSelectionEnd] = useState<string | null>(null);
@@ -53,6 +54,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ assetId, onDateChange }) =>
     const fetchBookings = async () => {
         try {
             setLoading(true);
+            setFetchError(false);
             const bookings = await getBookingsForAsset(assetId);
 
             const marked: MarkedDates = {};
@@ -75,7 +77,8 @@ const CalendarView: React.FC<CalendarViewProps> = ({ assetId, onDateChange }) =>
 
             setBookedDates(marked);
         } catch (error) {
-            console.error('[CalendarView] Error fetching bookings:', error);
+            // 网络或查询失败时显示错误状态，避免 loading 无限转圈
+            setFetchError(true);
         } finally {
             setLoading(false);
         }
@@ -131,7 +134,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ assetId, onDateChange }) =>
                 ...marked[selectionStart],
                 selected: true,
                 startingDay: true,
-                color: theme.colors.authPrimary,
+                color: theme.colors.primary,
                 textColor: theme.colors.background,
             };
 
@@ -140,7 +143,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ assetId, onDateChange }) =>
                     ...marked[selectionEnd],
                     selected: true,
                     endingDay: true,
-                    color: theme.colors.authPrimary,
+                    color: theme.colors.primary,
                     textColor: theme.colors.background,
                 };
 
@@ -152,7 +155,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ assetId, onDateChange }) =>
                     marked[ds] = {
                         ...marked[ds],
                         selected: true,
-                        color: theme.colors.authLight,
+                        color: theme.colors.primaryLight,
                         textColor: theme.colors.background,
                     };
                     current = addDays(current, 1);
@@ -166,8 +169,19 @@ const CalendarView: React.FC<CalendarViewProps> = ({ assetId, onDateChange }) =>
     if (loading) {
         return (
             <View style={styles.centerContainer}>
-                <ActivityIndicator size="large" color={theme.colors.authPrimary} />
+                <ActivityIndicator size="large" color={theme.colors.primary} />
                 <Text style={styles.loadingText}>加载预订信息...</Text>
+            </View>
+        );
+    }
+
+    if (fetchError) {
+        return (
+            <View style={styles.centerContainer}>
+                <Text style={styles.errorText}>加载预订信息失败</Text>
+                <TouchableOpacity onPress={fetchBookings} style={styles.retryButton}>
+                    <Text style={styles.retryText}>重试</Text>
+                </TouchableOpacity>
             </View>
         );
     }
@@ -175,14 +189,15 @@ const CalendarView: React.FC<CalendarViewProps> = ({ assetId, onDateChange }) =>
     return (
         <View style={styles.container}>
             <Calendar
+                minDate={format(new Date(), 'yyyy-MM-dd')}
                 markingType={'period'}
                 markedDates={getMarkedDates()}
                 onDayPress={handleDayPress}
                 theme={{
-                    selectedDayBackgroundColor: theme.colors.authPrimary,
-                    todayTextColor: theme.colors.authPrimary,
-                    arrowColor: theme.colors.authPrimary,
-                    monthTextColor: theme.colors.authBackground,
+                    selectedDayBackgroundColor: theme.colors.primary,
+                    todayTextColor: theme.colors.primary,
+                    arrowColor: theme.colors.primary,
+                    monthTextColor: theme.colors.text,
                     textMonthFontWeight: 'bold',
                 }}
             />
@@ -209,9 +224,25 @@ const styles = StyleSheet.create({
     },
     loadingText: {
         marginTop: 10,
-        color: theme.colors.authPrimary,
+        color: theme.colors.primary,
         fontSize: 14,
-    }
+    },
+    errorText: {
+        color: theme.colors.danger,
+        fontSize: 14,
+        marginBottom: 12,
+    },
+    retryButton: {
+        backgroundColor: theme.colors.primary,
+        paddingHorizontal: 20,
+        paddingVertical: 8,
+        borderRadius: 8,
+    },
+    retryText: {
+        color: theme.colors.background,
+        fontSize: 14,
+        fontWeight: '600',
+    },
 });
 
 export default CalendarView;

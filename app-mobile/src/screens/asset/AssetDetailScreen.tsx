@@ -1,57 +1,117 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, SafeAreaView, Dimensions } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, SafeAreaView, ActivityIndicator, Dimensions, StatusBar } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { HomeStackParamList } from '../../navigation/HomeStackNavigator';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../../theme';
-
+import { getAssetById } from '../../services/assetService';
+import type { Asset, Category } from '../../../../database/types/supabase';
 import CalendarView from '../../components/CalendarView';
+import ErrorView from '../../components/ErrorView';
+import SafeImage from '../../components/SafeImage';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'AssetDetailScreen'>;
+type FullAsset = Asset & { categories: Category };
 
 const { width } = Dimensions.get('window');
 
-// Mock data fetch based on ID
-const getAssetDetails = (id: string) => ({
-  id,
-  name: id === '1' ? '特级咖啡豆' : '索尼 Alpha 7 IV 全画幅微单相机',
-  description: '这是一款高性能的设备，适合各种专业场景。提供卓越的画质和稳定的性能表现。',
-  location: '主校区 图书馆 3F-A区 储物柜05',
-  warranty_status: '保修期内 (至 2027年5月)',
-  imageUrl: 'https://via.placeholder.com/400x300.png?text=Product+Image',
-  price: '¥299/天'
-});
-
 export default function AssetDetailScreen({ route, navigation }: Props) {
-  const asset = getAssetDetails(route.params?.id || 'default');
-  const [selectedDates, setSelectedDates] = React.useState<{ startDate: string, endDate: string } | null>(null);
+  const assetId = route.params?.id || '';
+  const [asset, setAsset] = useState<FullAsset | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedDates, setSelectedDates] = useState<{ startDate: string, endDate: string } | null>(null);
+
+  const fetchAssetDetails = useCallback(async () => {
+    if (!assetId) {
+      setError('未提供设备 ID');
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getAssetById(assetId);
+      if (data) {
+        setAsset(data);
+      } else {
+        setError('找不到该设备');
+      }
+    } catch (err: any) {
+      // console.error('Error fetching asset details:', err);
+      setError(err.message || '获取设备详情失败');
+    } finally {
+      setLoading(false);
+    }
+  }, [assetId]);
+
+  useEffect(() => {
+    fetchAssetDetails();
+  }, [fetchAssetDetails]);
 
   const handleDateChange = (startDate: string, endDate: string) => {
     setSelectedDates({ startDate, endDate });
   };
 
+  if (loading) {
+    return (
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <Text style={{ marginTop: 10, color: theme.colors.gray }}>正在加载设备详情...</Text>
+      </View>
+    );
+  }
+
+  if (error || !asset) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <ErrorView 
+          message={error || "获取设备详情失败"} 
+          onRetry={fetchAssetDetails} 
+        />
+        <TouchableOpacity 
+          style={[styles.bookButton, { margin: 20, paddingHorizontal: 30 }]}
+          onPress={() => navigation.goBack()}
+        >
+          <Text style={styles.bookButtonText}>返回</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
+
+  const isAvailable = asset.status === 'available';
+
   return (
     <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="dark-content" />
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-        {/* Placeholder for Product Image */}
+        {/* Product Image */}
         <View style={styles.imageContainer}>
-          <Image source={{ uri: asset.imageUrl }} style={styles.image} resizeMode="cover" />
-          <View style={styles.placeholderIcon}>
-            <Ionicons name="camera-outline" size={60} color="#ccc" />
-          </View>
+          <SafeImage 
+            uri={asset.images?.[0]} 
+            style={styles.image} 
+            resizeMode="cover" 
+            placeholderSize={60} 
+          />
         </View>
 
         <View style={styles.contentContainer}>
           {/* Header Info */}
           <View style={styles.header}>
-            <Text style={styles.title}>{asset.name}</Text>
-            <Text style={styles.price}>{asset.price}</Text>
+            <View style={styles.titleInfo}>
+              <Text style={styles.title}>{asset.name}</Text>
+              <View style={styles.categoryBadge}>
+                <Text style={styles.categoryText}>{asset.categories?.name_zh || asset.categories?.name || '未分类'}</Text>
+              </View>
+            </View>
+            <Text style={styles.price}>¥{asset.purchase_price ?? '面议'}/天</Text>
           </View>
 
           {/* Description */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>商品简介</Text>
-            <Text style={styles.descriptionText}>{asset.description}</Text>
+            <Text style={styles.descriptionText}>{asset.description || '暂无详细描述。'}</Text>
           </View>
 
           {/* Details/Specs */}
@@ -62,15 +122,17 @@ export default function AssetDetailScreen({ route, navigation }: Props) {
               <Ionicons name="location-outline" size={20} color={theme.colors.gray} style={styles.infoIcon} />
               <View>
                 <Text style={styles.infoLabel}>存放位置</Text>
-                <Text style={styles.infoValue}>{asset.location}</Text>
+                <Text style={styles.infoValue}>{asset.location || '校内指定位置'}</Text>
               </View>
             </View>
 
             <View style={styles.infoRow}>
-              <Ionicons name="shield-checkmark-outline" size={20} color={theme.colors.gray} style={styles.infoIcon} />
+              <Ionicons name="barcode-outline" size={20} color={theme.colors.gray} style={styles.infoIcon} />
               <View>
-                <Text style={styles.infoLabel}>保修状态</Text>
-                <Text style={styles.infoValue}>{asset.warranty_status}</Text>
+                <Text style={styles.infoLabel}>状态 & 编号</Text>
+                <Text style={[styles.infoValue, { color: isAvailable ? '#10b981' : theme.colors.danger }]}>
+                  {isAvailable ? '现存可借' : '借出/不可用'} · {asset.serial_number || '无编号'}
+                </Text>
               </View>
             </View>
           </View>
@@ -92,10 +154,10 @@ export default function AssetDetailScreen({ route, navigation }: Props) {
         <TouchableOpacity
           style={[
             styles.bookButton,
-            !selectedDates && styles.bookButtonDisabled
+            (!selectedDates || !isAvailable) && styles.bookButtonDisabled
           ]}
           onPress={() => {
-            if (selectedDates) {
+            if (selectedDates && isAvailable) {
               navigation.navigate('BookingFormScreen', {
                 assetId: asset.id,
                 startDate: selectedDates.startDate,
@@ -103,10 +165,10 @@ export default function AssetDetailScreen({ route, navigation }: Props) {
               });
             }
           }}
-          disabled={!selectedDates}
+          disabled={!selectedDates || !isAvailable}
         >
           <Text style={styles.bookButtonText}>
-            {selectedDates ? '立即预约' : '请先选择日期'}
+            {!isAvailable ? '不可借用' : (selectedDates ? '立即预约' : '请先选择日期')}
           </Text>
         </TouchableOpacity>
       </View>
@@ -122,6 +184,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: theme.colors.background,
+  },
   imageContainer: {
     width: width,
     height: 300,
@@ -133,7 +201,6 @@ const styles = StyleSheet.create({
   image: {
     width: '100%',
     height: '100%',
-    position: 'absolute'
   },
   placeholderIcon: {
     opacity: 0.5
@@ -148,16 +215,31 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginBottom: theme.spacing.lg,
   },
-  title: {
+  titleInfo: {
     flex: 1,
+    marginRight: theme.spacing.md,
+  },
+  title: {
     fontSize: 22,
     fontWeight: 'bold',
     color: theme.colors.text,
-    marginRight: theme.spacing.md,
     lineHeight: 30,
+    marginBottom: 4,
+  },
+  categoryBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#F3E8FF',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  categoryText: {
+    fontSize: 12,
+    color: theme.colors.primary,
+    fontWeight: '600',
   },
   price: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 'bold',
     color: theme.colors.primary,
   },
@@ -226,7 +308,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   bookButtonText: {
-    color: theme.colors.background,
+    color: '#fff',
     fontSize: 18,
     fontWeight: 'bold',
   }

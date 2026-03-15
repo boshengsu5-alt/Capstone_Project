@@ -6,17 +6,22 @@ import {
   FlatList,
   SafeAreaView,
   ActivityIndicator,
-  Image,
   RefreshControl,
   TouchableOpacity,
+  Alert,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { supabase } from '../../services/supabase';
+import { getMyBookings, cancelBooking } from '../../services/bookingService';
 import type { Booking, Asset, BookingStatus } from '../../../../database/types/supabase';
+import SafeImage from '../../components/SafeImage';
+import ReviewModal from '../../components/ReviewModal';
+import { theme } from '../../theme';
+import { Ionicons } from '@expo/vector-icons';
+import { handleApiError } from '../../utils/errorHandler';
 
-// Define the joined data type
+// 从 service 返回的借用记录，包含关联的资产信息
 type BookingWithAsset = Booking & {
-  assets: Asset | null;
+  assets: Pick<Asset, 'name' | 'images'> | null;
 };
 
 const getStatusLabel = (status: BookingStatus) => {
@@ -34,11 +39,11 @@ const getStatusLabel = (status: BookingStatus) => {
 
 const getStatusColor = (status: BookingStatus) => {
   switch (status) {
-    case 'overdue': return '#EF4444'; // Red
-    case 'active': return '#F59E0B'; // Orange
-    case 'returned': return '#10B981'; // Green
-    case 'approved': return '#6366F1'; // Indigo/Purple
-    case 'pending': return '#6B7280'; // Gray
+    case 'overdue': return '#EF4444';
+    case 'active': return '#F59E0B';
+    case 'returned': return '#10B981';
+    case 'approved': return '#6366F1';
+    case 'pending': return '#6B7280';
     default: return '#9CA3AF';
   }
 };
@@ -49,22 +54,17 @@ export default function BookingHistoryScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  // 评价弹窗状态
+  const [reviewModalVisible, setReviewModalVisible] = useState(false);
+  const [selectedBooking, setSelectedBooking] = useState<{id: string, name: string} | null>(null);
+
   const fetchBookings = async (isRefreshing = false) => {
     if (!isRefreshing) setLoading(true);
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      if (!userData.user) return;
-
-      const { data, error } = await supabase
-        .from('bookings')
-        .select('*, assets(*)')
-        .eq('borrower_id', userData.user.id)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
+      const data = await getMyBookings();
       setBookings(data as BookingWithAsset[]);
     } catch (error) {
-      console.error('Error fetching bookings:', error);
+      Alert.alert('加载失败', '获取借用记录失败，请下拉刷新重试');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -80,29 +80,53 @@ export default function BookingHistoryScreen() {
     fetchBookings(true);
   };
 
+  // 取消借用（仅 pending/approved 可取消）
+  const handleCancel = (bookingId: string, assetName: string) => {
+    Alert.alert('取消借用', `确定要取消「${assetName}」的借用申请吗？`, [
+      { text: '再想想', style: 'cancel' },
+      {
+        text: '确认取消',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await cancelBooking(bookingId);
+            Alert.alert('已取消', '借用申请已取消');
+            fetchBookings();
+          } catch (err: unknown) {
+            handleApiError(err, '取消失败');
+          }
+        },
+      },
+    ]);
+  };
+
   const renderItem = ({ item }: { item: BookingWithAsset }) => {
     const asset = item.assets;
     const statusColor = getStatusColor(item.status);
     const imageUrl = asset?.images?.[0];
+    const assetName = asset?.name || '未知设备';
+
+    // 根据状态决定可用操作
+    const canReturn = item.status === 'active' || item.status === 'overdue';
+    const canCancel = item.status === 'pending' || item.status === 'approved';
+    const canReview = item.status === 'returned';
 
     return (
       <View style={styles.card}>
         <View style={styles.cardContent}>
-          {imageUrl ? (
-            <Image source={{ uri: imageUrl }} style={styles.assetImage} />
-          ) : (
-            <View style={[styles.assetImage, styles.placeholderImage]}>
-              <Text style={styles.placeholderText}>No Image</Text>
-            </View>
-          )}
+          <SafeImage
+            uri={imageUrl}
+            style={styles.assetImage}
+            placeholderSize={30}
+          />
           <View style={styles.infoContainer}>
             <View style={styles.cardHeader}>
-              <Text style={styles.itemName} numberOfLines={1}>{asset?.name || '未知设备'}</Text>
+              <Text style={styles.itemName} numberOfLines={1}>{assetName}</Text>
               <View style={[styles.statusBadge, { backgroundColor: statusColor + '15' }]}>
                 <Text style={[styles.status, { color: statusColor }]}>{getStatusLabel(item.status)}</Text>
               </View>
             </View>
-            
+
             <View style={styles.dateRow}>
               <Text style={styles.dateLabel}>借用周期：</Text>
               <Text style={styles.dateRange}>
@@ -111,6 +135,57 @@ export default function BookingHistoryScreen() {
             </View>
           </View>
         </View>
+
+        {/* 操作按钮区域 */}
+        {(canReturn || canCancel) && (
+          <View style={styles.actionRow}>
+            {canReturn && (
+              <>
+                <TouchableOpacity
+                  style={styles.actionBtn}
+                  onPress={() => navigation.navigate('ReturnScreen', {
+                    bookingId: item.id,
+                    assetName,
+                  })}
+                >
+                  <Ionicons name="camera-outline" size={16} color={theme.colors.primary} />
+                  <Text style={styles.actionText}>拍照归还</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionBtn, styles.actionBtnDanger]}
+                  onPress={() => navigation.navigate('DamageReport', {
+                    assetId: item.asset_id,
+                    bookingId: item.id,
+                  })}
+                >
+                  <Ionicons name="warning-outline" size={16} color={theme.colors.danger} />
+                  <Text style={[styles.actionText, { color: theme.colors.danger }]}>损坏报修</Text>
+                </TouchableOpacity>
+              </>
+            )}
+            {canCancel && (
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.actionBtnDanger]}
+                onPress={() => handleCancel(item.id, assetName)}
+              >
+                <Ionicons name="close-circle-outline" size={16} color={theme.colors.danger} />
+                <Text style={[styles.actionText, { color: theme.colors.danger }]}>取消借用</Text>
+              </TouchableOpacity>
+            )}
+            {canReview && (
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.actionBtnReview]}
+                onPress={() => {
+                  setSelectedBooking({ id: item.id, name: assetName });
+                  setReviewModalVisible(true);
+                }}
+              >
+                <Ionicons name="star-outline" size={16} color="#FBBF24" />
+                <Text style={[styles.actionText, { color: '#FBBF24' }]}>评价设备</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
       </View>
     );
   };
@@ -118,7 +193,7 @@ export default function BookingHistoryScreen() {
   if (loading && !refreshing) {
     return (
       <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#6366F1" />
+        <ActivityIndicator size="large" color={theme.colors.primary} />
       </View>
     );
   }
@@ -135,17 +210,14 @@ export default function BookingHistoryScreen() {
         renderItem={renderItem}
         contentContainerStyle={styles.list}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#6366F1']} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.colors.primary]} />
         }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Image 
-              source={{ uri: 'https://img.icons8.com/illustrations/external-tulpahn-outline-color-tulpahn/100/external-empty-box-delivery-tulpahn-outline-color-tulpahn.png' }} 
-              style={styles.emptyImage} 
-            />
+            <Ionicons name="cube-outline" size={80} color={theme.colors.gray} style={{ marginBottom: 16, opacity: 0.5 }} />
             <Text style={styles.emptyTitle}>暂无借用记录</Text>
             <Text style={styles.emptySubtitle}>您还没有借用过任何东西，快去首页逛逛吧</Text>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.goHomeButton}
               onPress={() => navigation.navigate('HomeTab')}
             >
@@ -154,6 +226,18 @@ export default function BookingHistoryScreen() {
           </View>
         }
       />
+
+      {selectedBooking && (
+        <ReviewModal
+          visible={reviewModalVisible}
+          onClose={() => setReviewModalVisible(false)}
+          bookingId={selectedBooking.id}
+          assetName={selectedBooking.name}
+          onSuccess={() => {
+            fetchBookings();
+          }}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -161,13 +245,13 @@ export default function BookingHistoryScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: theme.colors.background,
   },
   centerContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F9FAFB',
+    backgroundColor: theme.colors.background,
   },
   header: {
     paddingHorizontal: 20,
@@ -177,7 +261,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: '800',
-    color: '#111827',
+    color: theme.colors.text,
   },
   list: {
     paddingHorizontal: 20,
@@ -187,13 +271,13 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: '#ffffff',
     borderRadius: 16,
-    marginBottom: 16,
-    padding: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 12,
-    elevation: 2,
+    marginBottom: 20,
+    padding: 16,
+    shadowColor: theme.colors.primary,
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 16,
+    elevation: 4,
     borderWidth: 1,
     borderColor: '#F3F4F6',
   },
@@ -205,14 +289,6 @@ const styles = StyleSheet.create({
     height: 80,
     borderRadius: 12,
     backgroundColor: '#F3F4F6',
-  },
-  placeholderImage: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  placeholderText: {
-    fontSize: 10,
-    color: '#9CA3AF',
   },
   infoContainer: {
     flex: 1,
@@ -228,7 +304,7 @@ const styles = StyleSheet.create({
   itemName: {
     fontSize: 17,
     fontWeight: '700',
-    color: '#1F2937',
+    color: theme.colors.text,
     flex: 1,
     marginRight: 8,
   },
@@ -246,13 +322,42 @@ const styles = StyleSheet.create({
   },
   dateLabel: {
     fontSize: 12,
-    color: '#6B7280',
+    color: theme.colors.gray,
     marginBottom: 2,
   },
   dateRange: {
     fontSize: 13,
-    color: '#374151',
+    color: theme.colors.text,
     fontWeight: '500',
+  },
+  // 操作按钮
+  actionRow: {
+    flexDirection: 'row',
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#F3F4F6',
+    gap: 10,
+  },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: theme.colors.primary + '10',
+    gap: 4,
+  },
+  actionBtnDanger: {
+    backgroundColor: theme.colors.danger + '10',
+  },
+  actionBtnReview: {
+    backgroundColor: '#FBBF24' + '15',
+  },
+  actionText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: theme.colors.primary,
   },
   emptyContainer: {
     flex: 1,
@@ -260,27 +365,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 100,
   },
-  emptyImage: {
-    width: 120,
-    height: 120,
-    marginBottom: 16,
-    opacity: 0.6,
-  },
   emptyTitle: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#374151',
+    color: theme.colors.text,
     marginBottom: 8,
   },
   emptySubtitle: {
     fontSize: 14,
-    color: '#6B7280',
+    color: theme.colors.gray,
     textAlign: 'center',
     paddingHorizontal: 40,
     marginBottom: 24,
   },
   goHomeButton: {
-    backgroundColor: '#6366F1',
+    backgroundColor: theme.colors.primary,
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 12,

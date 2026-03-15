@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { getCurrentUser } from './authService';
 import type { DamageSeverity } from '../../../database/types/supabase';
+import { uploadFile } from './storageService';
 
 // 手写 Database 类型与 Supabase 客户端泛型不完全兼容，
 // 用 db 别名统一绕过类型推断问题，运行时行为不受影响
@@ -61,6 +62,12 @@ export async function createBooking(
   const user = await getCurrentUser();
 
   // 先校验时间冲突，冲突时直接抛出错误拦截提交
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  if (startDate < todayStr) {
+    throw new Error('不能预订过去的日期');
+  }
+
   await checkBookingConflict(assetId, startDate, endDate);
 
   const { data, error } = await db
@@ -135,37 +142,21 @@ export async function activateBooking(bookingId: string) {
 }
 
 /**
- * 上传归还照片到 Supabase Storage
+ * Upload a return photo to Supabase Storage.
+ * 上传归还照片到 Supabase Storage (returns bucket)
+ * 
+ * @param photoUri - Local URI of the photo to upload.
+ * @param bookingId - The booking ID associated with this photo.
+ * @returns Public URL of the uploaded photo.
  */
-export async function uploadReturnPhoto(photoUri: string, bookingId: string) {
+export async function uploadReturnPhoto(photoUri: string, bookingId: string): Promise<string> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('用户未登录');
 
-  try {
-    const response = await fetch(photoUri);
-    const blob = await response.blob();
-    const fileExt = photoUri.split('.').pop() || 'jpg';
-    const fileName = `${user.id}/${bookingId}_${Date.now()}.${fileExt}`;
+  const fileExt = photoUri.split('.').pop() || 'jpg';
+  const fileName = `${user.id}/${bookingId}_${Date.now()}.${fileExt}`;
 
-    // 假设 bucket 名称为 "returns" 或者可以叫 "return_photos"
-    // User 的需求: 传给 Supabase 的大存储桶（Storage）。挂起等待系统返回一个网链串(URL)，存进 return_photo_url
-    const { data, error } = await supabase.storage
-      .from('returns')
-      .upload(fileName, blob, {
-        contentType: 'image/jpeg',
-      });
-
-    if (error) throw error;
-
-    const { data: publicUrlData } = supabase.storage
-      .from('returns')
-      .getPublicUrl(data.path);
-
-    return publicUrlData.publicUrl;
-  } catch (error) {
-    console.error('上传归还照片失败:', error);
-    throw new Error('照片上传失败，请重试');
-  }
+  return uploadFile('returns', photoUri, fileName);
 }
 
 /**
@@ -269,4 +260,30 @@ export async function findApprovedBookingForAsset(assetId: string) {
 export async function checkOverdueBookings() {
   const { error } = await db.rpc('check_overdue_bookings');
   if (error) throw error;
+}
+
+/**
+ * Submit a review for a completed booking.
+ * 为已完成的借用提交评价
+ * 
+ * @param bookingId - The booking ID to review.
+ * @param rating - Star rating (1-5).
+ * @param comment - Review text.
+ */
+export async function submitReview(bookingId: string, rating: number, comment: string) {
+  const user = await getCurrentUser();
+
+  const { data, error } = await db
+    .from('reviews')
+    .insert({
+      booking_id: bookingId,
+      reviewer_id: user.id,
+      rating,
+      comment,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
 }
